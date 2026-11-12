@@ -6,3 +6,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+clione_core.workspace = true
+clione_terminal.workspace = true

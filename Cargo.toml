@@ -11,3 +11,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kazanefu/clione"
 
 [workspace.dependencies]
+clione_core = { path = "crates/clione_core" }
+clione_render = { path = "crates/clione_render" }
+clione_input = { path = "crates/clione_input" }
+clione_terminal = { path = "crates/clione_terminal" }
