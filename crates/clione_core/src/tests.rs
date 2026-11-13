@@ -10,6 +10,14 @@ struct Position(i32);
 #[derive(Debug, PartialEq)]
 struct Name(&'static str);
 
+struct Marker;
+
+#[derive(Clone, PartialEq)]
+enum Screen {
+    Menu,
+    Game,
+}
+
 #[test]
 fn stores_and_queries_components() {
     let mut world = World::new();
@@ -96,10 +104,36 @@ fn query2_matches_the_archetype_intersection() {
     let query = world.query2::<Position, Name>();
     let result: Vec<_> = query
         .iter()
-        .map(|(entity, position, name)| (entity, position.0, name.0))
+        .map(|(entity, (position, name))| (entity, position.0, name.0))
         .collect();
 
     assert_eq!(result, vec![(matching, 1, "matching")]);
+}
+
+#[test]
+fn queries_support_three_components_and_mutable_access() {
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.insert(entity, Position(1));
+    world.insert(entity, Name("player"));
+    world.insert(entity, Marker);
+
+    let query = world.query::<(&Position, &Name, &Marker)>();
+    assert_eq!(
+        query
+            .iter()
+            .map(|(_, (position, name, _))| (position.0, name.0))
+            .collect::<Vec<_>>(),
+        vec![(1, "player")]
+    );
+    drop(query);
+
+    let mut query = world.query_mut::<(&mut Position, &Name)>();
+    for (_, (position, name)) in query.iter_mut() {
+        position.0 += 2;
+        assert_eq!(name.0, "player");
+    }
+    assert_eq!(world.get::<Position>(entity), Some(&Position(3)));
 }
 
 #[test]
@@ -135,4 +169,45 @@ fn read_only_systems_can_run_in_parallel() {
     schedule.run_parallel(&mut world);
 
     assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn startup_runs_once_and_on_enter_runs_on_state_changes() {
+    let mut world = World::new();
+    world.insert_resource(Vec::<&'static str>::new());
+    world.insert_resource(State::new(Screen::Menu));
+    let mut schedule = Schedule::new();
+    schedule.add_system(ScheduleStage::Startup, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("startup");
+    });
+    schedule.add_on_enter(Screen::Menu, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("menu");
+    });
+    schedule.add_on_enter(Screen::Game, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("game");
+    });
+
+    schedule.run_startup(&mut world);
+    schedule.run_startup(&mut world);
+    schedule.run_on_enter::<Screen>(&mut world);
+    schedule.run_on_enter::<Screen>(&mut world);
+    world
+        .resource_mut::<State<Screen>>()
+        .unwrap()
+        .set(Screen::Game);
+    schedule.run_on_enter::<Screen>(&mut world);
+
+    assert_eq!(
+        world.resource::<Vec<&'static str>>().unwrap(),
+        &vec!["startup", "menu", "game"]
+    );
 }

@@ -7,7 +7,7 @@ use std::{
 use crate::{
     Entity,
     events::Events,
-    query::Query2,
+    query::{Query, Query2, QueryMut, QueryMutSpec, QuerySpec},
     storage::{Archetype, Column, component_type, typed_column},
 };
 
@@ -159,10 +159,24 @@ impl World {
 
     /// Creates a read-only query matching entities with both components.
     pub fn query2<A: 'static + Send + Sync, B: 'static + Send + Sync>(&self) -> Query2<'_, A, B> {
-        Query2::new(
-            self,
-            self.entities_with_types(&[component_type::<A>(), component_type::<B>()]),
-        )
+        self.query::<(&A, &B)>()
+    }
+
+    /// Creates a read-only query from a tuple of component references.
+    pub fn query<'world, Q>(&'world self) -> Query<'world, Q>
+    where
+        Q: QuerySpec<'world>,
+    {
+        Query::new(self, self.entities_with_types(&Q::component_types()))
+    }
+
+    /// Creates a query that can read or mutate components according to `Q`.
+    pub fn query_mut<'world, Q>(&'world mut self) -> QueryMut<'world, Q>
+    where
+        Q: QueryMutSpec<'world>,
+    {
+        let entities = self.entities_with_types(&Q::component_types());
+        QueryMut::new(self, entities)
     }
 
     pub(crate) fn entities_with_types(&self, required: &[TypeId]) -> Vec<Entity> {

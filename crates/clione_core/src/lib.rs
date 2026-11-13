@@ -21,14 +21,16 @@ mod entity;
 mod events;
 mod query;
 mod schedule;
+mod state;
 mod storage;
 mod world;
 
 pub use commands::Commands;
 pub use entity::Entity;
 pub use events::Events;
-pub use query::Query2;
+pub use query::{Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
 pub use schedule::{ReadOnlySystem, Schedule, ScheduleError, ScheduleStage, System, SystemId};
+pub use state::State;
 pub use world::World;
 
 #[cfg(test)]

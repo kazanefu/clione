@@ -1,6 +1,6 @@
-use std::{fmt, sync::Arc};
+use std::{any::TypeId, fmt, sync::Arc};
 
-use crate::World;
+use crate::{State, World};
 
 /// A mutable system that runs against the ECS world.
 pub trait System {
@@ -39,6 +39,8 @@ pub struct SystemId(usize);
 /// The fixed execution phases of a game tick.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScheduleStage {
+    /// Runs once before the first game tick.
+    Startup,
     /// Runs before input translation.
     PreInput,
     /// Translates external input into game intent.
@@ -56,6 +58,7 @@ pub enum ScheduleStage {
 impl fmt::Display for ScheduleStage {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
+            Self::Startup => "Startup",
             Self::PreInput => "PreInput",
             Self::Input => "Input",
             Self::Update => "Update",
@@ -89,11 +92,19 @@ struct ReadOnlyNode {
     system: Arc<dyn ReadOnlySystem>,
 }
 
+struct OnEnterNode {
+    state_type: TypeId,
+    matches: Box<dyn Fn(&World) -> bool + Send + Sync>,
+    system: Box<dyn System>,
+}
+
 /// An ordered collection of ECS systems.
 #[derive(Default)]
 pub struct Schedule {
     systems: Vec<SystemNode>,
     read_only_systems: Vec<ReadOnlyNode>,
+    on_enter_systems: Vec<OnEnterNode>,
+    startup_ran: bool,
 }
 
 impl Schedule {
@@ -124,6 +135,23 @@ impl Schedule {
         self.read_only_systems.push(ReadOnlyNode {
             stage,
             system: Arc::new(system),
+        });
+    }
+
+    /// Adds a system that runs when the typed state enters `state`.
+    pub fn add_on_enter<S, F>(&mut self, state: S, system: F)
+    where
+        S: PartialEq + Clone + Send + Sync + 'static,
+        F: System + 'static,
+    {
+        self.on_enter_systems.push(OnEnterNode {
+            state_type: TypeId::of::<S>(),
+            matches: Box::new(move |world| {
+                world
+                    .resource::<State<S>>()
+                    .is_some_and(|current| current.get() == &state)
+            }),
+            system: Box::new(system),
         });
     }
 
@@ -163,16 +191,49 @@ impl Schedule {
         }
     }
 
+    /// Runs startup systems once. Repeated calls are no-ops.
+    pub fn run_startup(&mut self, world: &mut World) {
+        if self.startup_ran {
+            return;
+        }
+        self.run_stage(ScheduleStage::Startup, world);
+        self.startup_ran = true;
+    }
+
+    /// Runs systems registered for a state enter transition.
+    pub fn run_on_enter<S>(&mut self, world: &mut World)
+    where
+        S: PartialEq + Send + Sync + 'static,
+    {
+        let entered = world
+            .resource_mut::<State<S>>()
+            .is_some_and(|state| state.take_changed());
+        if !entered {
+            return;
+        }
+        let state_type = TypeId::of::<S>();
+        let mut systems = std::mem::take(&mut self.on_enter_systems);
+        let matching: Vec<_> = (0..systems.len())
+            .filter(|&index| {
+                systems[index].state_type == state_type && (systems[index].matches)(world)
+            })
+            .collect();
+        for index in matching {
+            systems[index].system.run(world);
+        }
+        self.on_enter_systems = systems;
+    }
+
     /// Runs all mutable systems serially.
     pub fn run(&mut self, world: &mut World) {
-        for stage in ScheduleStage::ALL {
+        for stage in ScheduleStage::TICK {
             self.run_stage(stage, world);
         }
     }
 
     /// Runs mutable systems serially and read-only systems concurrently per stage.
     pub fn run_parallel(&mut self, world: &mut World) {
-        for stage in ScheduleStage::ALL {
+        for stage in ScheduleStage::TICK {
             self.run_stage(stage, world);
             let systems: Vec<_> = self
                 .read_only_systems
@@ -215,7 +276,7 @@ impl Schedule {
 }
 
 impl ScheduleStage {
-    const ALL: [Self; 6] = [
+    const TICK: [Self; 6] = [
         Self::PreInput,
         Self::Input,
         Self::Update,
