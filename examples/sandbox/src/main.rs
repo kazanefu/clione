@@ -52,9 +52,10 @@ fn main() {
     });
 
     schedule.run_startup(&mut world);
-    schedule.run_on_enter::<GameState>(&mut world);
+
     println!("sandbox: running 10 fixed-timestep ECS ticks");
     for _ in 0..10 {
+        schedule.run_on_enter::<GameState>(&mut world);
         schedule.run_parallel(&mut world);
         thread::sleep(Duration::from_millis(100));
     }
