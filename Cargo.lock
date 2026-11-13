@@ -5,6 +5,12 @@ version = 4
 [[package]]
 name = "clione"
 version = "0.1.0"
+dependencies = [
+ "clione_core",
+ "clione_input",
+ "clione_render",
+ "clione_terminal",
+]
 
 [[package]]
 name = "clione_core"
@@ -13,10 +19,17 @@ version = "0.1.0"
 [[package]]
 name = "clione_input"
 version = "0.1.0"
+dependencies = [
+ "clione_core",
+]
 
 [[package]]
 name = "clione_render"
 version = "0.1.0"
+dependencies = [
+ "clione_core",
+ "clione_terminal",
+]
 
 [[package]]
 name = "clione_terminal"
