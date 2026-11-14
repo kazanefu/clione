@@ -36,8 +36,10 @@ impl Default for App {
 impl App {
     /// Creates an application with an empty world and schedule.
     pub fn new() -> Self {
+        let mut world = World::new();
+        world.insert_resource(AppExit::default());
         Self {
-            world: World::new(),
+            world,
             schedule: Schedule::new(),
         }
     }
@@ -126,7 +128,6 @@ impl App {
 
     /// Runs application ticks until an [`AppExit`] request is received.
     pub fn run(&mut self) {
-        self.world.insert_resource(AppExit::default());
         while !self
             .world
             .resource::<AppExit>()

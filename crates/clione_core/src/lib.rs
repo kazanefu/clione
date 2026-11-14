@@ -25,6 +25,7 @@ mod query;
 mod schedule;
 mod state;
 mod storage;
+mod system_param;
 mod world;
 
 pub use app::{App, AppExit, init_state};
@@ -38,6 +39,7 @@ pub use schedule::{
     ScheduleTarget, System, SystemId,
 };
 pub use state::State;
+pub use system_param::SystemContext;
 pub use world::World;
 
 #[cfg(test)]

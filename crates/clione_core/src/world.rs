@@ -9,6 +9,7 @@ use crate::{
     events::Events,
     query::{Query, Query2, QueryMut, QueryMutSpec, QuerySpec},
     storage::{Archetype, Column, component_type, typed_column},
+    system_param::SystemContext,
 };
 
 type ComponentValue = (TypeId, Box<dyn Any + Send + Sync>);
@@ -30,6 +31,11 @@ impl World {
         let mut world = Self::default();
         world.ensure_archetype(Vec::new());
         world
+    }
+
+    /// Creates a parameter context for obtaining multiple queries and resources.
+    pub fn system_context(&mut self) -> SystemContext<'_> {
+        SystemContext::new(self)
     }
 
     /// Allocates a new entity.

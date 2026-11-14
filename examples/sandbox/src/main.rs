@@ -52,13 +52,13 @@ fn main() {
     });
 
     app.add_systems(ScheduleStage::Update, |world: &mut World| {
-        let state = world.resource::<State<GameState>>().unwrap();
+        let mut params = world.system_context();
+        let state = params.resource_mut::<State<GameState>>().unwrap();
         if state.get() == &GameState::Playing {
-            let query = world.query::<(&Position, &Player)>();
+            let query = params.query::<(&Position, &Player)>();
             for (_, (position, _)) in query.iter() {
                 if position.x > 10 {
                     println!("requesting exit");
-                    let state = world.resource_mut::<State<GameState>>().unwrap();
                     state.set(GameState::Exit);
                 }
             }
@@ -71,9 +71,5 @@ fn main() {
         app_exit.request();
     });
 
-    println!("sandbox: running 30 fixed-timestep ECS ticks");
-    for _ in 0..30 {
-        app.update();
-        thread::sleep(Duration::from_millis(100));
-    }
+    app.run();
 }

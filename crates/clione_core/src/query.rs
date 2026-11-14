@@ -126,13 +126,21 @@ impl_query_tuple! {
 
 /// A read-only query over any supported tuple of component references.
 pub struct Query<'world, Q: QuerySpec<'world>> {
-    world: &'world World,
+    world: *const World,
     entities: Vec<Entity>,
-    marker: PhantomData<fn() -> Q>,
+    marker: PhantomData<&'world Q>,
 }
 
 impl<'world, Q: QuerySpec<'world>> Query<'world, Q> {
     pub(crate) fn new(world: &'world World, entities: Vec<Entity>) -> Self {
+        Self {
+            world: world as *const World,
+            entities,
+            marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn from_raw(world: *const World, entities: Vec<Entity>) -> Self {
         Self {
             world,
             entities,
@@ -144,12 +152,12 @@ impl<'world, Q: QuerySpec<'world>> Query<'world, Q> {
     pub fn iter(&self) -> impl Iterator<Item = (Entity, Q::Item)> + '_ {
         self.entities
             .iter()
-            .filter_map(|&entity| Some((entity, unsafe { Q::fetch(self.world, entity) }?)))
+            .filter_map(|&entity| Some((entity, unsafe { Q::fetch(&*self.world, entity) }?)))
     }
 
     /// Returns the query item for one entity.
     pub fn get(&self, entity: Entity) -> Option<Q::Item> {
-        unsafe { Q::fetch(self.world, entity) }
+        unsafe { Q::fetch(&*self.world, entity) }
     }
 
     /// Returns the number of entities matched when the query was created.
@@ -165,13 +173,22 @@ impl<'world, Q: QuerySpec<'world>> Query<'world, Q> {
 
 /// A query that can yield immutable and mutable component references.
 pub struct QueryMut<'world, Q: QueryMutSpec<'world>> {
-    world: &'world mut World,
+    world: *mut World,
     entities: Vec<Entity>,
-    marker: PhantomData<fn() -> Q>,
+    marker: PhantomData<&'world mut Q>,
 }
 
 impl<'world, Q: QueryMutSpec<'world>> QueryMut<'world, Q> {
     pub(crate) fn new(world: &'world mut World, entities: Vec<Entity>) -> Self {
+        assert_unique_types(&Q::component_types());
+        Self {
+            world: world as *mut World,
+            entities,
+            marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn from_raw(world: *mut World, entities: Vec<Entity>) -> Self {
         assert_unique_types(&Q::component_types());
         Self {
             world,
@@ -183,7 +200,7 @@ impl<'world, Q: QueryMutSpec<'world>> QueryMut<'world, Q> {
     /// Returns a mutable iterator over matching entities and query items.
     pub fn iter_mut(&mut self) -> QueryMutIter<'_, 'world, Q> {
         QueryMutIter {
-            world: self.world as *mut World,
+            world: self.world,
             entities: self.entities.iter().copied(),
             marker: PhantomData,
         }
@@ -191,7 +208,7 @@ impl<'world, Q: QueryMutSpec<'world>> QueryMut<'world, Q> {
 
     /// Returns the mutable query item for one entity.
     pub fn get_mut(&mut self, entity: Entity) -> Option<Q::Item> {
-        unsafe { fetch_mut_at::<Q>(self.world as *mut World, entity) }
+        unsafe { fetch_mut_at::<Q>(self.world, entity) }
     }
 
     /// Returns the number of entities matched when the query was created.
