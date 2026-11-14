@@ -1,6 +1,97 @@
-use std::{any::TypeId, fmt, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    fmt,
+    sync::Arc,
+};
 
 use crate::{State, World};
+
+type Transition = Option<Box<dyn Any + Send + Sync>>;
+type TransitionConsumer = Box<dyn Fn(&mut World) -> Option<Transition> + Send + Sync>;
+type PreviousStateMatcher = Box<dyn Fn(&dyn Any) -> bool + Send + Sync>;
+
+/// Registers systems that run when a state is entered.
+pub struct OnEnter<S>(pub S);
+
+/// Registers systems that run when a state is exited.
+pub struct OnExit<S>(pub S);
+
+/// Type-erased target used by [`Schedule::add_systems`].
+pub enum ScheduleTarget {
+    /// A regular execution stage.
+    Stage(ScheduleStage),
+    /// A state-enter lifecycle target.
+    OnEnter {
+        /// Type identifier of the state resource.
+        state_type: TypeId,
+        /// Consumes the pending state transition.
+        consume_transition: TransitionConsumer,
+        /// Checks whether the current state matches.
+        matches: Box<dyn Fn(&World) -> bool + Send + Sync>,
+    },
+    /// A state-exit lifecycle target.
+    OnExit {
+        /// Type identifier of the state resource.
+        state_type: TypeId,
+        /// Checks whether the previous state matches.
+        matches: PreviousStateMatcher,
+    },
+}
+
+/// A target accepted by [`Schedule::add_systems`].
+pub trait IntoScheduleTarget {
+    /// Converts the public target into an internal schedule target.
+    fn into_schedule_target(self) -> ScheduleTarget;
+}
+
+impl IntoScheduleTarget for ScheduleStage {
+    fn into_schedule_target(self) -> ScheduleTarget {
+        ScheduleTarget::Stage(self)
+    }
+}
+
+impl<S> IntoScheduleTarget for OnEnter<S>
+where
+    S: PartialEq + Clone + Send + Sync + 'static,
+{
+    fn into_schedule_target(self) -> ScheduleTarget {
+        let state = self.0;
+        ScheduleTarget::OnEnter {
+            state_type: TypeId::of::<S>(),
+            consume_transition: Box::new(|world| {
+                world
+                    .resource_mut::<State<S>>()
+                    .and_then(|state| state.take_transition())
+                    .map(|previous| {
+                        previous.map(|previous| Box::new(previous) as Box<dyn Any + Send + Sync>)
+                    })
+            }),
+            matches: Box::new(move |world| {
+                world
+                    .resource::<State<S>>()
+                    .is_some_and(|current| current.get() == &state)
+            }),
+        }
+    }
+}
+
+impl<S> IntoScheduleTarget for OnExit<S>
+where
+    S: PartialEq + Clone + Send + Sync + 'static,
+{
+    fn into_schedule_target(self) -> ScheduleTarget {
+        let state = self.0;
+        ScheduleTarget::OnExit {
+            state_type: TypeId::of::<S>(),
+            matches: Box::new(move |previous| {
+                previous
+                    .downcast_ref::<S>()
+                    .is_some_and(|previous| previous == &state)
+            }),
+        }
+    }
+}
 
 /// A mutable system that runs against the ECS world.
 pub trait System {
@@ -94,7 +185,14 @@ struct ReadOnlyNode {
 
 struct OnEnterNode {
     state_type: TypeId,
+    consume_transition: TransitionConsumer,
     matches: Box<dyn Fn(&World) -> bool + Send + Sync>,
+    system: Box<dyn System>,
+}
+
+struct OnExitNode {
+    state_type: TypeId,
+    matches: PreviousStateMatcher,
     system: Box<dyn System>,
 }
 
@@ -104,6 +202,7 @@ pub struct Schedule {
     systems: Vec<SystemNode>,
     read_only_systems: Vec<ReadOnlyNode>,
     on_enter_systems: Vec<OnEnterNode>,
+    on_exit_systems: Vec<OnExitNode>,
     startup_ran: bool,
 }
 
@@ -138,21 +237,57 @@ impl Schedule {
         });
     }
 
+    /// Adds a system to a stage or state lifecycle target.
+    pub fn add_systems<T, F>(&mut self, target: T, system: F)
+    where
+        T: IntoScheduleTarget,
+        F: System + 'static,
+    {
+        match target.into_schedule_target() {
+            ScheduleTarget::Stage(stage) => {
+                self.systems.push(SystemNode {
+                    stage,
+                    system: Box::new(system),
+                    dependencies: Vec::new(),
+                });
+            }
+            ScheduleTarget::OnEnter {
+                state_type,
+                consume_transition,
+                matches,
+            } => self.on_enter_systems.push(OnEnterNode {
+                state_type,
+                consume_transition,
+                matches,
+                system: Box::new(system),
+            }),
+            ScheduleTarget::OnExit {
+                state_type,
+                matches,
+            } => self.on_exit_systems.push(OnExitNode {
+                state_type,
+                matches,
+                system: Box::new(system),
+            }),
+        }
+    }
+
     /// Adds a system that runs when the typed state enters `state`.
     pub fn add_on_enter<S, F>(&mut self, state: S, system: F)
     where
         S: PartialEq + Clone + Send + Sync + 'static,
         F: System + 'static,
     {
-        self.on_enter_systems.push(OnEnterNode {
-            state_type: TypeId::of::<S>(),
-            matches: Box::new(move |world| {
-                world
-                    .resource::<State<S>>()
-                    .is_some_and(|current| current.get() == &state)
-            }),
-            system: Box::new(system),
-        });
+        self.add_systems(OnEnter(state), system);
+    }
+
+    /// Adds a system that runs when the typed state exits `state`.
+    pub fn add_on_exit<S, F>(&mut self, state: S, system: F)
+    where
+        S: PartialEq + Clone + Send + Sync + 'static,
+        F: System + 'static,
+    {
+        self.add_systems(OnExit(state), system);
     }
 
     /// Makes `before` run before `after`.
@@ -200,22 +335,41 @@ impl Schedule {
         self.startup_ran = true;
     }
 
-    /// Runs systems registered for a state enter transition.
-    pub fn run_on_enter<S>(&mut self, world: &mut World)
-    where
-        S: PartialEq + Send + Sync + 'static,
-    {
-        let entered = world
-            .resource_mut::<State<S>>()
-            .is_some_and(|state| state.take_changed());
-        if !entered {
-            return;
+    /// Runs all systems registered for state enter and exit transitions.
+    ///
+    /// Each state type is checked once, so callers do not need to name every
+    /// registered `State<S>` in the game loop.
+    pub fn run_on_enter(&mut self, world: &mut World) {
+        let systems = &self.on_enter_systems;
+        let mut transitions = HashMap::new();
+        for node in systems {
+            if transitions.contains_key(&node.state_type) {
+                continue;
+            }
+            if let Some(previous) = (node.consume_transition)(world) {
+                transitions.insert(node.state_type, previous);
+            }
         }
-        let state_type = TypeId::of::<S>();
+
+        let mut systems = std::mem::take(&mut self.on_exit_systems);
+        let matching: Vec<_> = (0..systems.len())
+            .filter(|&index| {
+                transitions
+                    .get(&systems[index].state_type)
+                    .and_then(|previous| previous.as_ref())
+                    .is_some_and(|previous| (systems[index].matches)(previous.as_ref()))
+            })
+            .collect();
+        for index in matching {
+            systems[index].system.run(world);
+        }
+        self.on_exit_systems = systems;
+
         let mut systems = std::mem::take(&mut self.on_enter_systems);
         let matching: Vec<_> = (0..systems.len())
             .filter(|&index| {
-                systems[index].state_type == state_type && (systems[index].matches)(world)
+                transitions.contains_key(&systems[index].state_type)
+                    && (systems[index].matches)(world)
             })
             .collect();
         for index in matching {

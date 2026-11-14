@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
 
-use clione::{Schedule, ScheduleStage, State, World};
+use clione::{OnEnter, Schedule, ScheduleStage, State, World};
 
 #[derive(Debug)]
 struct Position {
@@ -28,7 +28,7 @@ fn main() {
     let player = world.spawn();
     world.insert(player, Player);
     world.insert(player, Position { x: 0, y: 0 });
-    world.insert(player, Velocity { x: 1, y: 0 });
+    world.insert(player, Velocity { x: 1, y: 2 });
 
     let mut schedule = Schedule::new();
     schedule.add_system(ScheduleStage::Update, |world: &mut World| {
@@ -41,7 +41,7 @@ fn main() {
     schedule.add_system(ScheduleStage::Startup, |_world: &mut World| {
         println!("startup: creating sandbox world");
     });
-    schedule.add_on_enter(GameState::Playing, |_world: &mut World| {
+    schedule.add_systems(OnEnter(GameState::Playing), |_world: &mut World| {
         println!("on_enter: playing");
     });
     schedule.add_read_only_system(ScheduleStage::RenderPrepare, |world: &World| {
@@ -55,7 +55,7 @@ fn main() {
 
     println!("sandbox: running 10 fixed-timestep ECS ticks");
     for _ in 0..10 {
-        schedule.run_on_enter::<GameState>(&mut world);
+        schedule.run_on_enter(&mut world);
         schedule.run_parallel(&mut world);
         thread::sleep(Duration::from_millis(100));
     }

@@ -2,6 +2,7 @@
 
 pub use clione_core;
 pub use clione_core::{
-    Commands, Entity, Events, Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec,
-    ReadOnlySystem, Schedule, ScheduleError, ScheduleStage, State, System, SystemId, World,
+    Commands, Entity, Events, IntoScheduleTarget, OnEnter, OnExit, Query, Query2, QueryMut,
+    QueryMutIter, QueryMutSpec, QuerySpec, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage,
+    ScheduleTarget, State, System, SystemId, World,
 };

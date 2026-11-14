@@ -18,6 +18,11 @@ enum Screen {
     Game,
 }
 
+#[derive(Clone, PartialEq)]
+enum Overlay {
+    Hidden,
+}
+
 #[test]
 fn stores_and_queries_components() {
     let mut world = World::new();
@@ -176,6 +181,8 @@ fn startup_runs_once_and_on_enter_runs_on_state_changes() {
     let mut world = World::new();
     world.insert_resource(Vec::<&'static str>::new());
     world.insert_resource(State::new(Screen::Menu));
+    world.insert_resource(State::new(Overlay::Hidden));
+    world.insert_resource(State::new(Overlay::Hidden));
     let mut schedule = Schedule::new();
     schedule.add_system(ScheduleStage::Startup, |world: &mut World| {
         world
@@ -195,19 +202,31 @@ fn startup_runs_once_and_on_enter_runs_on_state_changes() {
             .unwrap()
             .push("game");
     });
+    schedule.add_on_enter(Overlay::Hidden, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("overlay");
+    });
+    schedule.add_on_exit(Screen::Menu, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("menu-exit");
+    });
 
     schedule.run_startup(&mut world);
     schedule.run_startup(&mut world);
-    schedule.run_on_enter::<Screen>(&mut world);
-    schedule.run_on_enter::<Screen>(&mut world);
+    schedule.run_on_enter(&mut world);
+    schedule.run_on_enter(&mut world);
     world
         .resource_mut::<State<Screen>>()
         .unwrap()
         .set(Screen::Game);
-    schedule.run_on_enter::<Screen>(&mut world);
+    schedule.run_on_enter(&mut world);
 
     assert_eq!(
         world.resource::<Vec<&'static str>>().unwrap(),
-        &vec!["startup", "menu", "game"]
+        &vec!["startup", "menu", "overlay", "menu-exit", "game"]
     );
 }

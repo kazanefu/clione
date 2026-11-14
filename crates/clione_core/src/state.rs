@@ -2,7 +2,8 @@
 #[derive(Debug)]
 pub struct State<S> {
     current: S,
-    changed: bool,
+    changed_from: Option<S>,
+    pending: bool,
 }
 
 impl<S> State<S> {
@@ -10,7 +11,8 @@ impl<S> State<S> {
     pub fn new(initial: S) -> Self {
         Self {
             current: initial,
-            changed: true,
+            changed_from: None,
+            pending: true,
         }
     }
 
@@ -27,14 +29,15 @@ impl<S> State<S> {
         if self.current == next {
             return false;
         }
-        self.current = next;
-        self.changed = true;
+        self.changed_from = Some(std::mem::replace(&mut self.current, next));
+        self.pending = true;
         true
     }
 
-    pub(crate) fn take_changed(&mut self) -> bool {
-        let changed = self.changed;
-        self.changed = false;
-        changed
+    pub(crate) fn take_transition(&mut self) -> Option<Option<S>> {
+        self.pending.then(|| {
+            self.pending = false;
+            self.changed_from.take()
+        })
     }
 }
