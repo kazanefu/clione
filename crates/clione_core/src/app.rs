@@ -1,7 +1,8 @@
 use crate::{
-    IntoScheduleTarget, Plugin, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage, State,
-    System, SystemId, World,
+    FixedTime, IntoScheduleTarget, Plugin, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage,
+    State, System, SystemId, Time, VirtualTime, World,
 };
+use std::time::Instant;
 
 /// A resource that stops the application loop when requested.
 #[derive(Debug, Default)]
@@ -25,6 +26,7 @@ impl AppExit {
 pub struct App {
     world: World,
     schedule: Schedule,
+    last_update: Instant,
 }
 
 impl Default for App {
@@ -38,9 +40,13 @@ impl App {
     pub fn new() -> Self {
         let mut world = World::new();
         world.insert_resource(AppExit::default());
+        world.insert_resource(Time::default());
+        world.insert_resource(VirtualTime::default());
+        world.insert_resource(FixedTime::default());
         Self {
             world,
             schedule: Schedule::new(),
+            last_update: Instant::now(),
         }
     }
 
@@ -63,6 +69,14 @@ impl App {
         F: System + 'static,
     {
         self.schedule.add_system(stage, system)
+    }
+
+    /// Adds a system that receives a [`SystemContext`] and returns its ID.
+    pub fn add_param_system<F>(&mut self, stage: ScheduleStage, system: F) -> SystemId
+    where
+        F: crate::ParamSystem + 'static,
+    {
+        self.schedule.add_param_system(stage, system)
     }
 
     /// Makes one regular stage system run before another.
@@ -121,8 +135,34 @@ impl App {
 
     /// Runs one complete application tick.
     pub fn update(&mut self) {
+        let now = Instant::now();
+        let delta = now.saturating_duration_since(self.last_update);
+        self.last_update = now;
+        self.update_with_delta(delta);
+    }
+
+    /// Runs one application tick with an explicit elapsed duration.
+    pub fn update_with_delta(&mut self, delta: std::time::Duration) {
+        self.world.resource_mut::<Time>().unwrap().advance(delta);
+        self.world
+            .resource_mut::<VirtualTime>()
+            .unwrap()
+            .advance(delta);
+        let virtual_delta = self.world.resource::<VirtualTime>().unwrap().delta();
+        self.world
+            .resource_mut::<FixedTime>()
+            .unwrap()
+            .accumulate(virtual_delta);
         self.schedule.run_startup(&mut self.world);
         self.schedule.run_on_enter(&mut self.world);
+        while self
+            .world
+            .resource_mut::<FixedTime>()
+            .unwrap()
+            .consume_step()
+        {
+            self.schedule.run_fixed_update(&mut self.world);
+        }
         self.schedule.run_parallel(&mut self.world);
     }
 

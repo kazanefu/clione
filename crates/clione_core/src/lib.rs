@@ -26,6 +26,7 @@ mod schedule;
 mod state;
 mod storage;
 mod system_param;
+mod time;
 mod world;
 
 pub use app::{App, AppExit, init_state};
@@ -35,11 +36,12 @@ pub use events::Events;
 pub use plugin::Plugin;
 pub use query::{Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
 pub use schedule::{
-    IntoScheduleTarget, OnEnter, OnExit, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage,
-    ScheduleTarget, System, SystemId,
+    IntoScheduleTarget, OnEnter, OnExit, ParamSystem, ReadOnlySystem, Schedule, ScheduleError,
+    ScheduleStage, ScheduleTarget, System, SystemId,
 };
 pub use state::State;
 pub use system_param::SystemContext;
+pub use time::{FixedTime, Time, VirtualTime};
 pub use world::World;
 
 #[cfg(test)]

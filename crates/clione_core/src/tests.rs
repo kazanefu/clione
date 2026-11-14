@@ -273,3 +273,35 @@ fn app_builds_plugins() {
 
     assert_eq!(app.world().resource::<u32>(), Some(&1));
 }
+
+#[test]
+fn param_system_can_access_multiple_mutable_parameters() {
+    let mut app = App::new();
+    app.insert_resource(0_u32);
+    app.add_param_system(ScheduleStage::Update, |params: &mut SystemContext| {
+        let value = params.resource_mut::<u32>().unwrap();
+        let mut query = params.query_mut::<&mut Position>();
+        *value += query.iter_mut().count() as u32;
+    });
+    let entity = app.world_mut().spawn();
+    app.world_mut().insert(entity, Position(1));
+    app.update_with_delta(std::time::Duration::from_millis(1));
+
+    assert_eq!(app.world().resource::<u32>(), Some(&1));
+}
+
+#[test]
+fn fixed_update_runs_at_configured_frequency() {
+    let mut app = App::new();
+    app.world_mut()
+        .resource_mut::<FixedTime>()
+        .unwrap()
+        .set_step(std::time::Duration::from_millis(10));
+    app.insert_resource(0_u32);
+    app.add_systems(ScheduleStage::FixedUpdate, |world: &mut World| {
+        *world.resource_mut::<u32>().unwrap() += 1;
+    });
+    app.update_with_delta(std::time::Duration::from_millis(35));
+
+    assert_eq!(app.world().resource::<u32>(), Some(&3));
+}

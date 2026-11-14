@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{State, World};
+use crate::{State, SystemContext, World};
 
 type Transition = Option<Box<dyn Any + Send + Sync>>;
 type TransitionConsumer = Box<dyn Fn(&mut World) -> Option<Transition> + Send + Sync>;
@@ -37,6 +37,22 @@ pub enum ScheduleTarget {
         /// Checks whether the previous state matches.
         matches: PreviousStateMatcher,
     },
+}
+
+/// A system that obtains its data through [`SystemContext`].
+pub trait ParamSystem {
+    /// Executes the parameter system.
+    fn run(&mut self, world: &mut World);
+}
+
+impl<F> ParamSystem for F
+where
+    F: for<'world> FnMut(&'world mut SystemContext<'world>),
+{
+    fn run(&mut self, world: &mut World) {
+        let mut context = world.system_context();
+        self(&mut context);
+    }
 }
 
 /// A target accepted by [`Schedule::add_systems`].
@@ -108,6 +124,19 @@ where
     }
 }
 
+struct ParamSystemAdapter<F> {
+    system: F,
+}
+
+impl<F> System for ParamSystemAdapter<F>
+where
+    F: ParamSystem,
+{
+    fn run(&mut self, world: &mut World) {
+        self.system.run(world);
+    }
+}
+
 /// A system that only observes the world and can run in parallel.
 pub trait ReadOnlySystem: Send + Sync {
     /// Executes the system while observing an immutable world.
@@ -138,6 +167,8 @@ pub enum ScheduleStage {
     Input,
     /// Runs simulation and game rules.
     Update,
+    /// Runs zero or more times per frame at a fixed timestep.
+    FixedUpdate,
     /// Applies cleanup and deferred structural changes.
     PostUpdate,
     /// Builds render data from the world.
@@ -153,6 +184,7 @@ impl fmt::Display for ScheduleStage {
             Self::PreInput => "PreInput",
             Self::Input => "Input",
             Self::Update => "Update",
+            Self::FixedUpdate => "FixedUpdate",
             Self::PostUpdate => "PostUpdate",
             Self::RenderPrepare => "RenderPrepare",
             Self::Render => "Render",
@@ -272,6 +304,20 @@ impl Schedule {
         }
     }
 
+    /// Adds a system that receives a [`SystemContext`].
+    pub fn add_param_system<F>(&mut self, stage: ScheduleStage, system: F) -> SystemId
+    where
+        F: ParamSystem + 'static,
+    {
+        let id = SystemId(self.systems.len());
+        self.systems.push(SystemNode {
+            stage,
+            system: Box::new(ParamSystemAdapter { system }),
+            dependencies: Vec::new(),
+        });
+        id
+    }
+
     /// Adds a system that runs when the typed state enters `state`.
     pub fn add_on_enter<S, F>(&mut self, state: S, system: F)
     where
@@ -324,6 +370,11 @@ impl Schedule {
         for id in order {
             self.systems[id.0].system.run(world);
         }
+    }
+
+    /// Runs one fixed-update stage.
+    pub fn run_fixed_update(&mut self, world: &mut World) {
+        self.run_stage(ScheduleStage::FixedUpdate, world);
     }
 
     /// Runs startup systems once. Repeated calls are no-ops.
