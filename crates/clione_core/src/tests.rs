@@ -230,3 +230,46 @@ fn startup_runs_once_and_on_enter_runs_on_state_changes() {
         &vec!["startup", "menu", "overlay", "menu-exit", "game"]
     );
 }
+
+#[test]
+fn app_exposes_system_ids_for_dependencies() {
+    let mut app = App::new();
+    app.insert_resource(Vec::<&'static str>::new());
+    let first = app.add_system(ScheduleStage::Update, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("first");
+    });
+    let second = app.add_system(ScheduleStage::Update, |world: &mut World| {
+        world
+            .resource_mut::<Vec<&'static str>>()
+            .unwrap()
+            .push("second");
+    });
+    app.add_dependency(first, second).unwrap().update();
+
+    assert_eq!(
+        app.world().resource::<Vec<&'static str>>().unwrap(),
+        &vec!["first", "second"]
+    );
+}
+
+struct CounterPlugin;
+
+impl Plugin for CounterPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(0_u32)
+            .add_systems(ScheduleStage::Update, |world: &mut World| {
+                *world.resource_mut::<u32>().unwrap() += 1;
+            });
+    }
+}
+
+#[test]
+fn app_builds_plugins() {
+    let mut app = App::new();
+    app.add_plugins(CounterPlugin).update();
+
+    assert_eq!(app.world().resource::<u32>(), Some(&1));
+}

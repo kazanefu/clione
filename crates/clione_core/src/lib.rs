@@ -16,18 +16,22 @@
 //! ```
 #![warn(missing_docs)]
 
+mod app;
 mod commands;
 mod entity;
 mod events;
+mod plugin;
 mod query;
 mod schedule;
 mod state;
 mod storage;
 mod world;
 
+pub use app::{App, AppExit, init_state};
 pub use commands::Commands;
 pub use entity::Entity;
 pub use events::Events;
+pub use plugin::Plugin;
 pub use query::{Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
 pub use schedule::{
     IntoScheduleTarget, OnEnter, OnExit, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage,
