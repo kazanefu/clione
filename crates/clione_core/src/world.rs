@@ -55,6 +55,7 @@ pub struct World {
     free_entities: Vec<u32>,
     reserved_entities: HashSet<Entity>,
     archetypes: HashMap<Vec<TypeId>, Archetype>,
+    archetype_transitions: HashMap<(Vec<TypeId>, TypeId, bool), Vec<TypeId>>,
     query_cache: RwLock<HashMap<Vec<TypeId>, Vec<Entity>>>,
     locations: HashMap<Entity, (Vec<TypeId>, usize)>,
     resources: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
@@ -179,12 +180,11 @@ impl World {
 
         self.mark_component_changed(entity, type_id, true);
         let (mut values, mut columns) = self.remove_from_current_archetype(entity);
-        let mut types = values
+        let current_types = values
             .iter()
             .map(|(type_id, _)| *type_id)
             .collect::<Vec<_>>();
-        types.push(type_id);
-        types.sort_by_key(type_id_key);
+        let types = self.transition_signature(&current_types, type_id, true);
         columns.insert(type_id, typed_column::<T>());
         values.push((type_id, Box::new(component)));
         self.move_entity(entity, types, values, columns);
@@ -221,7 +221,8 @@ impl World {
         let position = values.iter().position(|(id, _)| *id == type_id)?;
         let (_, value) = values.swap_remove(position);
         columns.remove(&type_id);
-        let types = values.iter().map(|(id, _)| *id).collect();
+        let current_types = values.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        let types = self.transition_signature(&current_types, type_id, false);
         self.move_entity(entity, types, values, columns);
         Some(*value.downcast::<T>().expect("column type matches TypeId"))
     }
@@ -339,6 +340,29 @@ impl World {
 
     fn invalidate_query_cache(&self) {
         self.query_cache.write().unwrap().clear();
+    }
+
+    fn transition_signature(
+        &mut self,
+        current: &[TypeId],
+        component: TypeId,
+        adding: bool,
+    ) -> Vec<TypeId> {
+        let mut key = current.to_vec();
+        key.sort_by_key(type_id_key);
+        let cache_key = (key.clone(), component, adding);
+        if let Some(signature) = self.archetype_transitions.get(&cache_key) {
+            return signature.clone();
+        }
+
+        if adding {
+            key.push(component);
+        } else {
+            key.retain(|type_id| *type_id != component);
+        }
+        key.sort_by_key(type_id_key);
+        self.archetype_transitions.insert(cache_key, key.clone());
+        key
     }
 
     /// Inserts or replaces a world-global resource.
