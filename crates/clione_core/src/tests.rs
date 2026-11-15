@@ -36,6 +36,34 @@ fn stores_and_queries_components() {
 }
 
 #[test]
+fn added_and_changed_filters_track_entities() {
+    let mut world = World::new();
+    let first = world.spawn();
+    let second = world.spawn();
+    world.insert(first, Position(1));
+    world.insert(second, Position(2));
+
+    let added: Vec<_> = world
+        .query::<(&Position, Added<Position>)>()
+        .iter()
+        .map(|(entity, (position, _))| (entity, position.0))
+        .collect();
+    assert_eq!(added, vec![(first, 1), (second, 2)]);
+
+    world.clear_component_changes();
+    assert!(world.query::<(&Position, Added<Position>)>().is_empty());
+    assert!(world.query::<(&Position, Changed<Position>)>().is_empty());
+
+    *world.get_mut::<Position>(first).unwrap() = Position(3);
+    let changed: Vec<_> = world
+        .query::<(&Position, Changed<Position>)>()
+        .iter()
+        .map(|(entity, (position, _))| (entity, position.0))
+        .collect();
+    assert_eq!(changed, vec![(first, 3)]);
+}
+
+#[test]
 fn despawn_invalidates_old_entity_handles() {
     let mut world = World::new();
     let old_entity = world.spawn();
@@ -347,4 +375,45 @@ fn deferred_spawn_reserves_and_activates_entity() {
     world.flush_commands();
     assert!(world.is_alive(entity));
     assert!(world.insert(entity, Marker));
+}
+
+#[test]
+fn message_readers_keep_independent_cursors_per_system() {
+    let mut app = App::new();
+    app.world_mut().send_message(7_u32);
+    app.insert_resource(0_u32);
+    app.add_param_system(ScheduleStage::Update, |context: &mut SystemContext| {
+        let mut reader = context.message_reader::<u32>().unwrap();
+        let count = reader.read().count();
+        *context.resource_mut::<u32>().unwrap() += count as u32;
+    });
+    app.add_param_system(ScheduleStage::Update, |context: &mut SystemContext| {
+        let mut reader = context.message_reader::<u32>().unwrap();
+        let count = reader.read().count();
+        *context.resource_mut::<u32>().unwrap() += count as u32;
+    });
+
+    app.update_with_delta(std::time::Duration::ZERO);
+
+    assert_eq!(app.world().resource::<u32>(), Some(&2));
+}
+
+#[test]
+fn fallible_world_operations_report_entity_errors() {
+    let mut world = World::new();
+    let entity = world.spawn();
+    world.try_insert(entity, Name("ok")).unwrap();
+    assert_eq!(world.try_remove::<Name>(entity), Ok(Name("ok")));
+    assert_eq!(
+        world.try_remove::<Name>(entity),
+        Err(WorldError::MissingComponent {
+            entity,
+            component: std::any::TypeId::of::<Name>(),
+        })
+    );
+    world.try_despawn(entity).unwrap();
+    assert_eq!(
+        world.try_despawn(entity),
+        Err(WorldError::InvalidEntity(entity))
+    );
 }

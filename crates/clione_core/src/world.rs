@@ -1,6 +1,7 @@
 use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    fmt,
     hash::{Hash, Hasher},
 };
 
@@ -16,6 +17,36 @@ use crate::{
 type ComponentValue = (TypeId, Box<dyn Any + Send + Sync>);
 type ColumnTemplates = HashMap<TypeId, Box<dyn Column>>;
 
+/// Errors returned by fallible World operations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorldError {
+    /// The entity handle is stale or does not exist in this world.
+    InvalidEntity(Entity),
+    /// The entity does not contain the requested component.
+    MissingComponent {
+        /// Entity on which the operation was attempted.
+        entity: Entity,
+        /// Type identifier of the missing component.
+        component: TypeId,
+    },
+}
+
+impl fmt::Display for WorldError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidEntity(entity) => write!(formatter, "invalid entity: {entity:?}"),
+            Self::MissingComponent { entity, component } => {
+                write!(
+                    formatter,
+                    "entity {entity:?} has no component {component:?}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for WorldError {}
+
 /// The ECS container for entities, components, resources, events, and archetypes.
 #[derive(Default)]
 pub struct World {
@@ -27,6 +58,9 @@ pub struct World {
     resources: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     changed_resources: HashSet<TypeId>,
     changed_components: HashSet<TypeId>,
+    component_changes: HashMap<(Entity, TypeId), u64>,
+    added_components: HashSet<(Entity, TypeId)>,
+    next_component_generation: u64,
     event_clearers: Vec<fn(&mut World)>,
     message_cursors: HashMap<(usize, TypeId), usize>,
     commands: Commands,
@@ -100,6 +134,13 @@ impl World {
         true
     }
 
+    /// Despawns an entity or returns an explicit error.
+    pub fn try_despawn(&mut self, entity: Entity) -> Result<(), WorldError> {
+        self.despawn(entity)
+            .then_some(())
+            .ok_or(WorldError::InvalidEntity(entity))
+    }
+
     /// Returns whether an entity handle points to a live entity.
     pub fn is_alive(&self, entity: Entity) -> bool {
         !self.reserved_entities.contains(&entity)
@@ -115,12 +156,12 @@ impl World {
             return false;
         }
         let type_id = component_type::<T>();
-        self.changed_components.insert(type_id);
         let has_component = self
             .locations
             .get(&entity)
             .is_some_and(|(types, _)| types.contains(&type_id));
         if has_component {
+            self.mark_component_changed(entity, type_id, false);
             let (signature, row) = self.locations.get(&entity).unwrap().clone();
             let archetype = self.archetypes.get_mut(&signature).unwrap();
             let column = archetype.columns.get_mut(&type_id).unwrap();
@@ -132,6 +173,7 @@ impl World {
             return true;
         }
 
+        self.mark_component_changed(entity, type_id, true);
         let (mut values, mut columns) = self.remove_from_current_archetype(entity);
         let mut types = values
             .iter()
@@ -145,13 +187,23 @@ impl World {
         true
     }
 
+    /// Inserts or replaces a component, returning an explicit error for a stale entity.
+    pub fn try_insert<T: 'static + Send + Sync>(
+        &mut self,
+        entity: Entity,
+        component: T,
+    ) -> Result<(), WorldError> {
+        self.insert(entity, component)
+            .then_some(())
+            .ok_or(WorldError::InvalidEntity(entity))
+    }
+
     /// Removes and returns a component from an entity.
     pub fn remove<T: 'static + Send + Sync>(&mut self, entity: Entity) -> Option<T> {
         if !self.is_alive(entity) {
             return None;
         }
         let type_id = component_type::<T>();
-        self.changed_components.insert(type_id);
         if !self
             .locations
             .get(&entity)
@@ -159,6 +211,8 @@ impl World {
         {
             return None;
         }
+        self.mark_component_changed(entity, type_id, false);
+        self.added_components.remove(&(entity, type_id));
         let (mut values, mut columns) = self.remove_from_current_archetype(entity);
         let position = values.iter().position(|(id, _)| *id == type_id)?;
         let (_, value) = values.swap_remove(position);
@@ -166,6 +220,21 @@ impl World {
         let types = values.iter().map(|(id, _)| *id).collect();
         self.move_entity(entity, types, values, columns);
         Some(*value.downcast::<T>().expect("column type matches TypeId"))
+    }
+
+    /// Removes a component or returns an explicit missing-component error.
+    pub fn try_remove<T: 'static + Send + Sync>(
+        &mut self,
+        entity: Entity,
+    ) -> Result<T, WorldError> {
+        if !self.is_alive(entity) {
+            return Err(WorldError::InvalidEntity(entity));
+        }
+        self.remove::<T>(entity)
+            .ok_or(WorldError::MissingComponent {
+                entity,
+                component: TypeId::of::<T>(),
+            })
     }
 
     /// Returns a component reference for an entity.
@@ -183,12 +252,30 @@ impl World {
 
     /// Returns a mutable component reference for an entity.
     pub fn get_mut<T: 'static + Send + Sync>(&mut self, entity: Entity) -> Option<&mut T> {
+        let type_id = component_type::<T>();
+        let has_component = self.locations.get(&entity).is_some_and(|(signature, _)| {
+            self.archetypes
+                .get(signature)
+                .is_some_and(|archetype| archetype.columns.contains_key(&type_id))
+        });
+        if !has_component {
+            return None;
+        }
+        self.mark_component_changed(entity, type_id, false);
+        self.get_mut_untracked(entity)
+    }
+
+    pub(crate) fn get_mut_untracked<T: 'static + Send + Sync>(
+        &mut self,
+        entity: Entity,
+    ) -> Option<&mut T> {
         let (signature, row) = self.locations.get(&entity)?.clone();
+        let type_id = component_type::<T>();
         let column = self
             .archetypes
             .get_mut(&signature)?
             .columns
-            .get_mut(&component_type::<T>())?;
+            .get_mut(&type_id)?;
         let pointer = column.get_mut_ptr(row) as *mut T;
         // The mutable world borrow prevents structural changes while this reference exists.
         Some(unsafe { &mut *pointer })
@@ -277,9 +364,32 @@ impl World {
         self.changed_components.contains(&TypeId::of::<T>())
     }
 
+    /// Returns whether an entity received this component since the last reset.
+    pub fn is_component_added<T: 'static + Send + Sync>(&self, entity: Entity) -> bool {
+        self.added_components.contains(&(entity, TypeId::of::<T>()))
+    }
+
+    /// Returns whether an entity's component changed since the last reset.
+    pub fn is_entity_component_changed<T: 'static + Send + Sync>(&self, entity: Entity) -> bool {
+        self.component_changes
+            .contains_key(&(entity, TypeId::of::<T>()))
+    }
+
+    /// Returns the latest change generation for an entity component.
+    pub fn component_change_generation<T: 'static + Send + Sync>(
+        &self,
+        entity: Entity,
+    ) -> Option<u64> {
+        self.component_changes
+            .get(&(entity, TypeId::of::<T>()))
+            .copied()
+    }
+
     /// Clears all component change flags for the current tick.
     pub fn clear_component_changes(&mut self) {
         self.changed_components.clear();
+        self.component_changes.clear();
+        self.added_components.clear();
     }
 
     /// Returns the deferred command buffer for this world.
@@ -422,6 +532,20 @@ impl World {
         for (row, entity) in archetype.entities.iter().copied().enumerate() {
             self.locations.insert(entity, (signature.to_vec(), row));
         }
+    }
+
+    fn mark_component_changed(&mut self, entity: Entity, type_id: TypeId, added: bool) {
+        self.next_component_generation = self.next_component_generation.wrapping_add(1);
+        self.component_changes
+            .insert((entity, type_id), self.next_component_generation);
+        if added {
+            self.added_components.insert((entity, type_id));
+        }
+        self.changed_components.insert(type_id);
+    }
+
+    pub(crate) fn mark_component_type_changed(&mut self, entity: Entity, type_id: TypeId) {
+        self.mark_component_changed(entity, type_id, false);
     }
 }
 

@@ -18,6 +18,14 @@ impl Commands {
         Self::default()
     }
 
+    /// Reserves an entity and queues its activation.
+    ///
+    /// The returned entity can be used by subsequent deferred commands before
+    /// the command buffer is flushed.
+    pub fn spawn(&mut self, world: &mut World) -> Entity {
+        world.spawn_deferred()
+    }
+
     /// Queues an entity despawn.
     pub fn despawn(&mut self, entity: Entity) {
         self.queued.push(Box::new(move |world| {

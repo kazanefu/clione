@@ -34,7 +34,7 @@ pub use commands::Commands;
 pub use entity::Entity;
 pub use events::{Events, MessageReader, MessageWriter, Messages};
 pub use plugin::Plugin;
-pub use query::{Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
+pub use query::{Added, Changed, Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
 pub use schedule::{
     IntoScheduleTarget, OnEnter, OnEvent, OnExit, OnMessage, ParamSystem, ReadOnlySystem, Schedule,
     ScheduleError, ScheduleStage, ScheduleTarget, System, SystemId,
@@ -42,7 +42,7 @@ pub use schedule::{
 pub use state::State;
 pub use system_param::SystemContext;
 pub use time::{FixedTime, Time, VirtualTime};
-pub use world::World;
+pub use world::{World, WorldError};
 
 #[cfg(test)]
 mod tests;

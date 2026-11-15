@@ -1,7 +1,8 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
-    Commands, MessageReader, MessageWriter, World,
+    Commands, Entity, MessageReader, MessageWriter, World,
+    events::Messages,
     query::{Query, QueryMut, QueryMutSpec, QuerySpec},
 };
 
@@ -77,7 +78,7 @@ impl<'world> SystemContext<'world> {
 
     /// Returns a reader for messages that have already been registered.
     pub fn message_reader<T: Send + Sync + 'static>(&mut self) -> Option<MessageReader<'world, T>> {
-        self.register_resources(vec![TypeId::of::<T>()], false);
+        self.register_resources(vec![TypeId::of::<Messages<T>>()], false);
         unsafe {
             let messages = (&*self.world).messages::<T>()?;
             let system_id = self.system_id?;
@@ -91,7 +92,7 @@ impl<'world> SystemContext<'world> {
 
     /// Returns a writer for a message queue, registering it when necessary.
     pub fn message_writer<T: Send + Sync + 'static>(&mut self) -> MessageWriter<'world, T> {
-        self.register_resources(vec![TypeId::of::<T>()], true);
+        self.register_resources(vec![TypeId::of::<Messages<T>>()], true);
         unsafe {
             if (&*self.world).messages::<T>().is_none() {
                 (&mut *self.world).add_messages::<T>();
@@ -106,6 +107,11 @@ impl<'world> SystemContext<'world> {
     /// Returns the world's deferred command buffer.
     pub fn commands(&mut self) -> &'world mut Commands {
         unsafe { &mut *(*self.world).commands_raw() }
+    }
+
+    /// Reserves an entity through the deferred command buffer.
+    pub fn spawn(&mut self) -> Entity {
+        unsafe { (&mut *self.world).spawn_deferred() }
     }
 
     fn register_components(&mut self, types: Vec<TypeId>, mutable: bool) {

@@ -2,6 +2,28 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{Entity, World};
 
+/// A query filter matching entities whose component was added this tick.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Added<T>(PhantomData<fn() -> T>);
+
+/// A query filter matching entities whose component changed this tick.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Changed<T>(PhantomData<fn() -> T>);
+
+impl<T> Added<T> {
+    /// Creates an [`Added`] filter.
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> Changed<T> {
+    /// Creates a [`Changed`] filter.
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
 /// Describes an immutable component query, such as `(&Position, &Velocity)`.
 pub trait QuerySpec<'world> {
     /// The item yielded for one matching entity.
@@ -23,6 +45,10 @@ pub trait QueryMutSpec<'world> {
 
     /// Returns component types required by the query.
     fn component_types() -> Vec<TypeId>;
+    /// Returns component types mutably accessed by the query.
+    fn mutable_component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
 
     /// # Safety
     ///
@@ -62,8 +88,64 @@ impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for &'world mut T {
         vec![TypeId::of::<T>()]
     }
 
+    fn mutable_component_types() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
+
     unsafe fn fetch(world: &'world mut World, entity: Entity) -> Option<Self::Item> {
-        world.get_mut(entity)
+        world.get_mut_untracked(entity)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QuerySpec<'world> for Added<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world World, entity: Entity) -> Option<Self::Item> {
+        world.is_component_added::<T>(entity).then(Self::new)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QuerySpec<'world> for Changed<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world World, entity: Entity) -> Option<Self::Item> {
+        world
+            .is_entity_component_changed::<T>(entity)
+            .then(Self::new)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for Added<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world mut World, entity: Entity) -> Option<Self::Item> {
+        world.is_component_added::<T>(entity).then(Self::new)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for Changed<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world mut World, entity: Entity) -> Option<Self::Item> {
+        world
+            .is_entity_component_changed::<T>(entity)
+            .then(Self::new)
     }
 }
 
@@ -97,6 +179,12 @@ macro_rules! impl_query_tuple {
                 fn component_types() -> Vec<TypeId> {
                     let mut types = Vec::new();
                     $(types.extend($name::component_types());)+
+                    types
+                }
+
+                fn mutable_component_types() -> Vec<TypeId> {
+                    let mut types = Vec::new();
+                    $(types.extend($name::mutable_component_types());)+
                     types
                 }
 
@@ -162,12 +250,12 @@ impl<'world, Q: QuerySpec<'world>> Query<'world, Q> {
 
     /// Returns the number of entities matched when the query was created.
     pub fn len(&self) -> usize {
-        self.entities.len()
+        self.iter().count()
     }
 
     /// Returns whether the query matched no entities.
     pub fn is_empty(&self) -> bool {
-        self.entities.is_empty()
+        self.iter().next().is_none()
     }
 }
 
@@ -242,7 +330,11 @@ unsafe fn fetch_mut_at<'world, Q: QueryMutSpec<'world>>(
     world: *mut World,
     entity: Entity,
 ) -> Option<Q::Item> {
-    unsafe { Q::fetch(&mut *world, entity) }
+    let item = unsafe { Q::fetch(&mut *world, entity) }?;
+    for type_id in Q::mutable_component_types() {
+        unsafe { (&mut *world).mark_component_type_changed(entity, type_id) };
+    }
+    Some(item)
 }
 
 fn assert_unique_types(types: &[TypeId]) {
