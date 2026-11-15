@@ -27,6 +27,7 @@ mod state;
 mod storage;
 mod system_param;
 mod time;
+mod types;
 mod world;
 
 pub use app::{App, AppExit, init_state};
@@ -44,6 +45,7 @@ pub use schedule::{
 pub use state::State;
 pub use system_param::SystemContext;
 pub use time::{FixedTime, Time, VirtualTime};
+pub use types::{Cell, Color, Frame, InputEvent, Key, Layer, Point, Rect, Size, TerminalSize};
 pub use world::{World, WorldError};
 
 #[cfg(test)]

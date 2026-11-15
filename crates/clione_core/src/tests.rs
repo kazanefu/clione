@@ -441,3 +441,37 @@ fn query_with_and_without_filters_select_entities() {
         .collect();
     assert_eq!(matched, vec![(without_marker, 2)]);
 }
+
+#[test]
+fn frame_bounds_and_rect_contains_are_deterministic() {
+    let size = Size::new(3, 2);
+    let mut frame = Frame::new(size);
+    assert!(frame.set(Point::new(2, 1), Cell::new('@')));
+    assert_eq!(frame.get(Point::new(2, 1)), Some(Cell::new('@')));
+    assert!(!frame.set(Point::new(3, 0), Cell::new('x')));
+    assert!(Rect::new(Point::new(1, 1), Size::new(2, 1)).contains(Point::new(2, 1)));
+    assert!(!Rect::new(Point::new(1, 1), Size::new(2, 1)).contains(Point::new(0, 1)));
+}
+
+#[test]
+fn entity_generation_and_component_change_boundaries_are_safe() {
+    let mut world = World::new();
+    let old = world.spawn();
+    world.insert(old, Position(1));
+    let first_generation = world.component_change_generation::<Position>(old);
+    world.clear_component_changes();
+    assert!(!world.is_entity_component_changed::<Position>(old));
+    world.insert(old, Position(2));
+    assert!(
+        world
+            .component_change_generation::<Position>(old)
+            .zip(first_generation)
+            .is_some_and(|(current, previous)| current > previous)
+    );
+
+    world.despawn(old);
+    let replacement = world.spawn();
+    assert_eq!(old.index(), replacement.index());
+    assert_ne!(old, replacement);
+    assert!(!world.is_alive(old));
+}

@@ -235,3 +235,17 @@ schedule.run(&mut world);
 
 `SystemContext` 内部では複数の参照を安全に共存させるためアクセスを記録しています。
 同一型への可変アクセスを複数取得する設計は避け、必要なら一つの Query にまとめてください。
+
+## Core標準型
+
+端末非依存の座標・描画・入力型はcoreから利用できます。
+
+```rust
+let mut frame = Frame::new(Size::new(80, 24));
+frame.set(Point::new(2, 1), Cell::new('@'));
+let event = InputEvent::KeyDown(Key::Char('q'));
+let _ = (event, TerminalSize(Size::new(80, 24)), Layer(1));
+```
+
+`Frame::set`は範囲外なら`false`を返し、`Frame::get`は範囲外なら`None`を返します。
+端末I/OやANSI変換はcoreでは行わず、terminal/renderクレートが担当します。
