@@ -7,9 +7,6 @@ name = "clione"
 version = "0.1.0"
 dependencies = [
  "clione_core",
- "clione_input",
- "clione_render",
- "clione_terminal",
 ]
 
 [[package]]
