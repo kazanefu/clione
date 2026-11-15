@@ -305,3 +305,46 @@ fn fixed_update_runs_at_configured_frequency() {
 
     assert_eq!(app.world().resource::<u32>(), Some(&3));
 }
+
+#[test]
+fn commands_are_flushed_between_systems() {
+    let mut app = App::new();
+    let entity = app.world_mut().spawn();
+    let first = app.add_system(ScheduleStage::Update, move |world: &mut World| {
+        world.commands().insert(entity, Name("queued"));
+    });
+    let second = app.add_system(ScheduleStage::Update, move |world: &mut World| {
+        assert_eq!(world.get::<Name>(entity), Some(&Name("queued")));
+    });
+    app.add_dependency(first, second).unwrap().update();
+}
+
+#[test]
+fn resource_mut_marks_resource_changed() {
+    let mut world = World::new();
+    world.insert_resource(1_u32);
+    world.clear_resource_changed::<u32>();
+    assert!(!world.is_resource_changed::<u32>());
+    *world.resource_mut::<u32>().unwrap() = 2;
+    assert!(world.is_resource_changed::<u32>());
+}
+
+#[test]
+fn app_clears_events_after_each_update() {
+    let mut app = App::new();
+    app.world_mut().add_events::<u32>();
+    app.world_mut().send_event(7_u32);
+    assert_eq!(app.world().events::<u32>().unwrap().iter().count(), 1);
+    app.update_with_delta(std::time::Duration::ZERO);
+    assert_eq!(app.world().events::<u32>().unwrap().iter().count(), 0);
+}
+
+#[test]
+fn deferred_spawn_reserves_and_activates_entity() {
+    let mut world = World::new();
+    let entity = world.spawn_deferred();
+    assert!(!world.is_alive(entity));
+    world.flush_commands();
+    assert!(world.is_alive(entity));
+    assert!(world.insert(entity, Marker));
+}

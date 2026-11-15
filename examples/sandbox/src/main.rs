@@ -49,11 +49,10 @@ fn main() {
         }
     });
 
-    app.add_systems(ScheduleStage::Update, |world: &mut World| {
-        let mut params = world.system_context();
-        let state = params.resource_mut::<State<GameState>>().unwrap();
+    app.add_param_system(ScheduleStage::Update, |ctx: &mut SystemContext| {
+        let state = ctx.resource_mut::<State<GameState>>().unwrap();
         if state.get() == &GameState::Playing {
-            let query = params.query::<(&Position, &Player)>();
+            let query = ctx.query::<(&Position, &Player)>();
             for (_, (position, _)) in query.iter() {
                 if position.x > 10 {
                     println!("requesting exit");

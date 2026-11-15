@@ -164,6 +164,10 @@ impl App {
             self.schedule.run_fixed_update(&mut self.world);
         }
         self.schedule.run_parallel(&mut self.world);
+        self.schedule.run_on_event(&mut self.world);
+        self.world.clear_events();
+        self.world.clear_resource_changes();
+        self.world.clear_component_changes();
     }
 
     /// Runs application ticks until an [`AppExit`] request is received.

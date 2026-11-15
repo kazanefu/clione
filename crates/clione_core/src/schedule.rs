@@ -17,6 +17,25 @@ pub struct OnEnter<S>(pub S);
 /// Registers systems that run when a state is exited.
 pub struct OnExit<S>(pub S);
 
+/// Registers systems that run when at least one event of `E` exists.
+pub struct OnEvent<E>(std::marker::PhantomData<E>);
+
+/// Alias for an event condition using Bevy's message terminology.
+pub type OnMessage<E> = OnEvent<E>;
+
+impl<E> OnEvent<E> {
+    /// Creates an event lifecycle target.
+    pub const fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl<E> Default for OnEvent<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Type-erased target used by [`Schedule::add_systems`].
 pub enum ScheduleTarget {
     /// A regular execution stage.
@@ -37,12 +56,23 @@ pub enum ScheduleTarget {
         /// Checks whether the previous state matches.
         matches: PreviousStateMatcher,
     },
+    /// An event lifecycle target.
+    OnEvent {
+        /// Checks whether an event is pending.
+        matches: Box<dyn Fn(&World) -> bool + Send + Sync>,
+    },
 }
 
 /// A system that obtains its data through [`SystemContext`].
 pub trait ParamSystem {
     /// Executes the parameter system.
     fn run(&mut self, world: &mut World);
+
+    /// Executes the system with its stable scheduler identity.
+    fn run_with_id(&mut self, world: &mut World, system_id: usize) {
+        let _ = system_id;
+        self.run(world);
+    }
 }
 
 impl<F> ParamSystem for F
@@ -51,6 +81,12 @@ where
 {
     fn run(&mut self, world: &mut World) {
         let mut context = world.system_context();
+        self(&mut context);
+    }
+
+    /// Executes the parameter system with its stable scheduler identity.
+    fn run_with_id(&mut self, world: &mut World, system_id: usize) {
+        let mut context = world.system_context_for(system_id);
         self(&mut context);
     }
 }
@@ -109,10 +145,31 @@ where
     }
 }
 
+impl<E> IntoScheduleTarget for OnEvent<E>
+where
+    E: Send + Sync + 'static,
+{
+    fn into_schedule_target(self) -> ScheduleTarget {
+        ScheduleTarget::OnEvent {
+            matches: Box::new(|world| {
+                world
+                    .events::<E>()
+                    .is_some_and(|events| events.iter().next().is_some())
+            }),
+        }
+    }
+}
+
 /// A mutable system that runs against the ECS world.
 pub trait System {
     /// Executes the system against a mutable world.
     fn run(&mut self, world: &mut World);
+
+    /// Executes the system with its stable scheduler identity.
+    fn run_with_id(&mut self, world: &mut World, system_id: usize) {
+        let _ = system_id;
+        self.run(world);
+    }
 }
 
 impl<F> System for F
@@ -134,6 +191,10 @@ where
 {
     fn run(&mut self, world: &mut World) {
         self.system.run(world);
+    }
+
+    fn run_with_id(&mut self, world: &mut World, system_id: usize) {
+        self.system.run_with_id(world, system_id);
     }
 }
 
@@ -228,6 +289,11 @@ struct OnExitNode {
     system: Box<dyn System>,
 }
 
+struct OnEventNode {
+    matches: Box<dyn Fn(&World) -> bool + Send + Sync>,
+    system: Box<dyn System>,
+}
+
 /// An ordered collection of ECS systems.
 #[derive(Default)]
 pub struct Schedule {
@@ -235,6 +301,7 @@ pub struct Schedule {
     read_only_systems: Vec<ReadOnlyNode>,
     on_enter_systems: Vec<OnEnterNode>,
     on_exit_systems: Vec<OnExitNode>,
+    on_event_systems: Vec<OnEventNode>,
     startup_ran: bool,
 }
 
@@ -298,6 +365,10 @@ impl Schedule {
                 matches,
             } => self.on_exit_systems.push(OnExitNode {
                 state_type,
+                matches,
+                system: Box::new(system),
+            }),
+            ScheduleTarget::OnEvent { matches } => self.on_event_systems.push(OnEventNode {
                 matches,
                 system: Box::new(system),
             }),
@@ -368,13 +439,28 @@ impl Schedule {
             .execution_order(stage)
             .expect("schedule dependencies must be valid");
         for id in order {
-            self.systems[id.0].system.run(world);
+            self.systems[id.0].system.run_with_id(world, id.0);
+            world.flush_commands();
         }
     }
 
     /// Runs one fixed-update stage.
     pub fn run_fixed_update(&mut self, world: &mut World) {
         self.run_stage(ScheduleStage::FixedUpdate, world);
+    }
+
+    /// Runs systems whose event type has pending events.
+    pub fn run_on_event(&mut self, world: &mut World) {
+        let mut systems = std::mem::take(&mut self.on_event_systems);
+        let matching: Vec<_> = (0..systems.len())
+            .filter(|&index| (systems[index].matches)(world))
+            .collect();
+        for index in matching {
+            let system_id = systems[index].system.as_mut() as *mut dyn System as *const () as usize;
+            systems[index].system.run_with_id(world, system_id);
+            world.flush_commands();
+        }
+        self.on_event_systems = systems;
     }
 
     /// Runs startup systems once. Repeated calls are no-ops.
@@ -412,7 +498,9 @@ impl Schedule {
             })
             .collect();
         for index in matching {
-            systems[index].system.run(world);
+            let system_id = systems[index].system.as_mut() as *mut dyn System as *const () as usize;
+            systems[index].system.run_with_id(world, system_id);
+            world.flush_commands();
         }
         self.on_exit_systems = systems;
 
@@ -424,7 +512,9 @@ impl Schedule {
             })
             .collect();
         for index in matching {
-            systems[index].system.run(world);
+            let system_id = systems[index].system.as_mut() as *mut dyn System as *const () as usize;
+            systems[index].system.run_with_id(world, system_id);
+            world.flush_commands();
         }
         self.on_enter_systems = systems;
     }

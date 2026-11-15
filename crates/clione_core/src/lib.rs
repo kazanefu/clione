@@ -32,12 +32,12 @@ mod world;
 pub use app::{App, AppExit, init_state};
 pub use commands::Commands;
 pub use entity::Entity;
-pub use events::Events;
+pub use events::{Events, MessageReader, MessageWriter, Messages};
 pub use plugin::Plugin;
 pub use query::{Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
 pub use schedule::{
-    IntoScheduleTarget, OnEnter, OnExit, ParamSystem, ReadOnlySystem, Schedule, ScheduleError,
-    ScheduleStage, ScheduleTarget, System, SystemId,
+    IntoScheduleTarget, OnEnter, OnEvent, OnExit, OnMessage, ParamSystem, ReadOnlySystem, Schedule,
+    ScheduleError, ScheduleStage, ScheduleTarget, System, SystemId,
 };
 pub use state::State;
 pub use system_param::SystemContext;

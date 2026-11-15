@@ -1,7 +1,7 @@
 use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
-    World,
+    Commands, MessageReader, MessageWriter, World,
     query::{Query, QueryMut, QueryMutSpec, QuerySpec},
 };
 
@@ -18,14 +18,16 @@ enum AccessKey {
 /// once when a parameter is requested.
 pub struct SystemContext<'world> {
     world: *mut World,
+    system_id: Option<usize>,
     accesses: Vec<(AccessKey, bool)>,
     marker: PhantomData<&'world mut World>,
 }
 
 impl<'world> SystemContext<'world> {
-    pub(crate) fn new(world: &'world mut World) -> Self {
+    pub(crate) fn new(world: &'world mut World, system_id: Option<usize>) -> Self {
         Self {
             world,
+            system_id,
             accesses: Vec::new(),
             marker: PhantomData,
         }
@@ -71,6 +73,39 @@ impl<'world> SystemContext<'world> {
                 .resource_mut::<T>()
                 .map(|resource| &mut *(resource as *mut T))
         }
+    }
+
+    /// Returns a reader for messages that have already been registered.
+    pub fn message_reader<T: Send + Sync + 'static>(&mut self) -> Option<MessageReader<'world, T>> {
+        self.register_resources(vec![TypeId::of::<T>()], false);
+        unsafe {
+            let messages = (&*self.world).messages::<T>()?;
+            let system_id = self.system_id?;
+            let cursor = (&mut *self.world)
+                .message_cursors_mut()
+                .entry((system_id, TypeId::of::<T>()))
+                .or_insert(0);
+            Some(MessageReader::from_state(messages, cursor))
+        }
+    }
+
+    /// Returns a writer for a message queue, registering it when necessary.
+    pub fn message_writer<T: Send + Sync + 'static>(&mut self) -> MessageWriter<'world, T> {
+        self.register_resources(vec![TypeId::of::<T>()], true);
+        unsafe {
+            if (&*self.world).messages::<T>().is_none() {
+                (&mut *self.world).add_messages::<T>();
+            }
+            let messages = (&mut *self.world)
+                .messages_mut::<T>()
+                .expect("message resource was initialized above");
+            MessageWriter::new(messages)
+        }
+    }
+
+    /// Returns the world's deferred command buffer.
+    pub fn commands(&mut self) -> &'world mut Commands {
+        unsafe { &mut *(*self.world).commands_raw() }
     }
 
     fn register_components(&mut self, types: Vec<TypeId>, mutable: bool) {

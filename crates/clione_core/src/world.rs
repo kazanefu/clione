@@ -1,11 +1,12 @@
 use std::{
     any::{Any, TypeId},
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
 };
 
 use crate::{
     Entity,
+    commands::Commands,
     events::Events,
     query::{Query, Query2, QueryMut, QueryMutSpec, QuerySpec},
     storage::{Archetype, Column, component_type, typed_column},
@@ -20,9 +21,15 @@ type ColumnTemplates = HashMap<TypeId, Box<dyn Column>>;
 pub struct World {
     generations: Vec<u32>,
     free_entities: Vec<u32>,
+    reserved_entities: HashSet<Entity>,
     archetypes: HashMap<Vec<TypeId>, Archetype>,
     locations: HashMap<Entity, (Vec<TypeId>, usize)>,
     resources: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+    changed_resources: HashSet<TypeId>,
+    changed_components: HashSet<TypeId>,
+    event_clearers: Vec<fn(&mut World)>,
+    message_cursors: HashMap<(usize, TypeId), usize>,
+    commands: Commands,
 }
 
 impl World {
@@ -35,25 +42,50 @@ impl World {
 
     /// Creates a parameter context for obtaining multiple queries and resources.
     pub fn system_context(&mut self) -> SystemContext<'_> {
-        SystemContext::new(self)
+        SystemContext::new(self, None)
+    }
+
+    pub(crate) fn system_context_for(&mut self, system_id: usize) -> SystemContext<'_> {
+        SystemContext::new(self, Some(system_id))
+    }
+
+    pub(crate) fn message_cursors_mut(&mut self) -> &mut HashMap<(usize, TypeId), usize> {
+        &mut self.message_cursors
     }
 
     /// Allocates a new entity.
     pub fn spawn(&mut self) -> Entity {
+        let entity = self.allocate_entity();
+        self.activate_reserved(entity);
+        entity
+    }
+
+    /// Reserves an entity and queues its activation through the world's commands.
+    pub fn spawn_deferred(&mut self) -> Entity {
+        let entity = self.allocate_entity();
+        self.reserved_entities.insert(entity);
+        self.commands.spawn_reserved(entity);
+        entity
+    }
+
+    fn allocate_entity(&mut self) -> Entity {
         let index = self.free_entities.pop().unwrap_or_else(|| {
             let index = self.generations.len() as u32;
             self.generations.push(0);
             index
         });
-        let entity = Entity {
+        Entity {
             index,
             generation: self.generations[index as usize],
-        };
+        }
+    }
+
+    pub(crate) fn activate_reserved(&mut self, entity: Entity) {
+        self.reserved_entities.remove(&entity);
         let archetype = self.archetypes.get_mut(&Vec::new()).unwrap();
         archetype.add_entity(entity, []);
         self.locations
             .insert(entity, (Vec::new(), archetype.entities.len() - 1));
-        entity
     }
 
     /// Removes an entity and all of its components.
@@ -70,9 +102,11 @@ impl World {
 
     /// Returns whether an entity handle points to a live entity.
     pub fn is_alive(&self, entity: Entity) -> bool {
-        self.generations
-            .get(entity.index as usize)
-            .is_some_and(|generation| *generation == entity.generation)
+        !self.reserved_entities.contains(&entity)
+            && self
+                .generations
+                .get(entity.index as usize)
+                .is_some_and(|generation| *generation == entity.generation)
     }
 
     /// Inserts or replaces a component on an entity.
@@ -81,6 +115,7 @@ impl World {
             return false;
         }
         let type_id = component_type::<T>();
+        self.changed_components.insert(type_id);
         let has_component = self
             .locations
             .get(&entity)
@@ -116,6 +151,7 @@ impl World {
             return None;
         }
         let type_id = component_type::<T>();
+        self.changed_components.insert(type_id);
         if !self
             .locations
             .get(&entity)
@@ -203,6 +239,7 @@ impl World {
     /// Inserts or replaces a world-global resource.
     pub fn insert_resource<T: 'static + Send + Sync>(&mut self, resource: T) {
         self.resources.insert(TypeId::of::<T>(), Box::new(resource));
+        self.changed_resources.insert(TypeId::of::<T>());
     }
 
     /// Returns a world-global resource.
@@ -214,15 +251,71 @@ impl World {
 
     /// Returns a mutable world-global resource.
     pub fn resource_mut<T: 'static + Send + Sync>(&mut self) -> Option<&mut T> {
+        self.changed_resources.insert(TypeId::of::<T>());
         self.resources
             .get_mut(&TypeId::of::<T>())
             .and_then(|resource| resource.downcast_mut::<T>())
+    }
+
+    /// Returns whether a resource was inserted or mutably accessed.
+    pub fn is_resource_changed<T: 'static + Send + Sync>(&self) -> bool {
+        self.changed_resources.contains(&TypeId::of::<T>())
+    }
+
+    /// Clears the change flag for one resource.
+    pub fn clear_resource_changed<T: 'static + Send + Sync>(&mut self) {
+        self.changed_resources.remove(&TypeId::of::<T>());
+    }
+
+    /// Clears all resource change flags for the current tick.
+    pub fn clear_resource_changes(&mut self) {
+        self.changed_resources.clear();
+    }
+
+    /// Returns whether a component type changed during the current tick.
+    pub fn is_component_changed<T: 'static + Send + Sync>(&self) -> bool {
+        self.changed_components.contains(&TypeId::of::<T>())
+    }
+
+    /// Clears all component change flags for the current tick.
+    pub fn clear_component_changes(&mut self) {
+        self.changed_components.clear();
+    }
+
+    /// Returns the deferred command buffer for this world.
+    pub fn commands(&mut self) -> &mut Commands {
+        &mut self.commands
+    }
+
+    pub(crate) fn commands_raw(&mut self) -> *mut Commands {
+        &mut self.commands
+    }
+
+    /// Applies all deferred structural changes.
+    pub fn flush_commands(&mut self) {
+        let mut commands = std::mem::take(&mut self.commands);
+        commands.apply(self);
+        self.commands = commands;
     }
 
     /// Registers an event queue if it is not already present.
     pub fn add_events<T: 'static + Send + Sync>(&mut self) {
         if self.resource::<Events<T>>().is_none() {
             self.insert_resource(Events::<T>::default());
+            self.event_clearers.push(clear_events::<T>);
+        }
+    }
+
+    /// Registers a message queue if it is not already present.
+    pub fn add_messages<T: 'static + Send + Sync>(&mut self) {
+        self.add_events::<T>();
+    }
+
+    /// Clears all registered event queues.
+    pub fn clear_events(&mut self) {
+        let clearers = self.event_clearers.clone();
+        for clear in clearers {
+            clear(self);
         }
     }
 
@@ -239,6 +332,14 @@ impl World {
             .send(event);
     }
 
+    /// Sends a message, creating its queue when necessary.
+    pub fn send_message<T: 'static + Send + Sync>(&mut self, message: T) {
+        self.add_messages::<T>();
+        self.messages_mut::<T>()
+            .expect("message resource was initialized above")
+            .write(message);
+    }
+
     /// Returns an event queue.
     pub fn events<T: 'static + Send + Sync>(&self) -> Option<&Events<T>> {
         self.resource::<Events<T>>()
@@ -247,6 +348,16 @@ impl World {
     /// Returns a mutable event queue.
     pub fn events_mut<T: 'static + Send + Sync>(&mut self) -> Option<&mut Events<T>> {
         self.resource_mut::<Events<T>>()
+    }
+
+    /// Returns a message queue.
+    pub fn messages<T: 'static + Send + Sync>(&self) -> Option<&Events<T>> {
+        self.events::<T>()
+    }
+
+    /// Returns a mutable message queue.
+    pub fn messages_mut<T: 'static + Send + Sync>(&mut self) -> Option<&mut Events<T>> {
+        self.events_mut::<T>()
     }
 
     fn ensure_archetype(&mut self, signature: Vec<TypeId>) {
@@ -311,6 +422,15 @@ impl World {
         for (row, entity) in archetype.entities.iter().copied().enumerate() {
             self.locations.insert(entity, (signature.to_vec(), row));
         }
+    }
+}
+
+fn clear_events<T: 'static + Send + Sync>(world: &mut World) {
+    if let Some(events) = world.resources.get_mut(&TypeId::of::<Events<T>>()) {
+        events
+            .downcast_mut::<Events<T>>()
+            .expect("event resource type matches")
+            .clear();
     }
 }
 
