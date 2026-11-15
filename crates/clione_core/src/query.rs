@@ -10,6 +10,14 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Changed<T>(PhantomData<fn() -> T>);
 
+/// A query filter requiring an entity to contain `T`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct With<T>(PhantomData<fn() -> T>);
+
+/// A query filter requiring an entity not to contain `T`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Without<T>(PhantomData<fn() -> T>);
+
 impl<T> Added<T> {
     /// Creates an [`Added`] filter.
     pub fn new() -> Self {
@@ -19,6 +27,20 @@ impl<T> Added<T> {
 
 impl<T> Changed<T> {
     /// Creates a [`Changed`] filter.
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> With<T> {
+    /// Creates a [`With`] filter.
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> Without<T> {
+    /// Creates a [`Without`] filter.
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -146,6 +168,54 @@ impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for Changed<T> {
         world
             .is_entity_component_changed::<T>(entity)
             .then(Self::new)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QuerySpec<'world> for With<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
+
+    unsafe fn fetch(world: &'world World, entity: Entity) -> Option<Self::Item> {
+        world.get::<T>(entity).map(|_| Self::new())
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QuerySpec<'world> for Without<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world World, entity: Entity) -> Option<Self::Item> {
+        world.get::<T>(entity).is_none().then(Self::new)
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for With<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        vec![TypeId::of::<T>()]
+    }
+
+    unsafe fn fetch(world: &'world mut World, entity: Entity) -> Option<Self::Item> {
+        world.get::<T>(entity).map(|_| Self::new())
+    }
+}
+
+impl<'world, T: 'static + Send + Sync> QueryMutSpec<'world> for Without<T> {
+    type Item = Self;
+
+    fn component_types() -> Vec<TypeId> {
+        Vec::new()
+    }
+
+    unsafe fn fetch(world: &'world mut World, entity: Entity) -> Option<Self::Item> {
+        world.get::<T>(entity).is_none().then(Self::new)
     }
 }
 

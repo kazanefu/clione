@@ -114,6 +114,13 @@ Component の変更世代は Entity と Component 型ごとに管理され、tic
 変更フラグがリセットされます。`World::component_change_generation::<T>(entity)`
 で現在の世代番号も確認できます。
 
+`With<T>` と `Without<T>` はComponentの存在だけを条件にするフィルタです。
+
+```rust
+let query = context.query::<(&Position, With<Player>)>();
+let query = context.query::<(&Position, Without<Hidden>)>();
+```
+
 ## Resource
 
 Resource は World に型ごとに一つだけ存在する共有データです。

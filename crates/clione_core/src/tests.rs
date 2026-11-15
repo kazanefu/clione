@@ -417,3 +417,27 @@ fn fallible_world_operations_report_entity_errors() {
         Err(WorldError::InvalidEntity(entity))
     );
 }
+
+#[test]
+fn query_with_and_without_filters_select_entities() {
+    let mut world = World::new();
+    let with_marker = world.spawn();
+    let without_marker = world.spawn();
+    world.insert(with_marker, Marker);
+    world.insert(with_marker, Position(1));
+    world.insert(without_marker, Position(2));
+
+    let query = world.query::<(&Position, With<Marker>)>();
+    let matched: Vec<_> = query
+        .iter()
+        .map(|(entity, (position, _))| (entity, position.0))
+        .collect();
+    assert_eq!(matched, vec![(with_marker, 1)]);
+
+    let query = world.query::<(&Position, Without<Marker>)>();
+    let matched: Vec<_> = query
+        .iter()
+        .map(|(entity, (position, _))| (entity, position.0))
+        .collect();
+    assert_eq!(matched, vec![(without_marker, 2)]);
+}

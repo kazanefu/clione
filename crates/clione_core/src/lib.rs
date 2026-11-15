@@ -34,7 +34,9 @@ pub use commands::Commands;
 pub use entity::Entity;
 pub use events::{Events, MessageReader, MessageWriter, Messages};
 pub use plugin::Plugin;
-pub use query::{Added, Changed, Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec};
+pub use query::{
+    Added, Changed, Query, Query2, QueryMut, QueryMutIter, QueryMutSpec, QuerySpec, With, Without,
+};
 pub use schedule::{
     IntoScheduleTarget, OnEnter, OnEvent, OnExit, OnMessage, ParamSystem, ReadOnlySystem, Schedule,
     ScheduleError, ScheduleStage, ScheduleTarget, System, SystemId,

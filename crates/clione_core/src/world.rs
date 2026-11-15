@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet, hash_map::DefaultHasher},
     fmt,
     hash::{Hash, Hasher},
+    sync::RwLock,
 };
 
 use crate::{
@@ -54,6 +55,7 @@ pub struct World {
     free_entities: Vec<u32>,
     reserved_entities: HashSet<Entity>,
     archetypes: HashMap<Vec<TypeId>, Archetype>,
+    query_cache: RwLock<HashMap<Vec<TypeId>, Vec<Entity>>>,
     locations: HashMap<Entity, (Vec<TypeId>, usize)>,
     resources: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     changed_resources: HashSet<TypeId>,
@@ -115,6 +117,7 @@ impl World {
     }
 
     pub(crate) fn activate_reserved(&mut self, entity: Entity) {
+        self.invalidate_query_cache();
         self.reserved_entities.remove(&entity);
         let archetype = self.archetypes.get_mut(&Vec::new()).unwrap();
         archetype.add_entity(entity, []);
@@ -127,6 +130,7 @@ impl World {
         if !self.is_alive(entity) {
             return false;
         }
+        self.invalidate_query_cache();
         self.remove_from_current_archetype(entity);
         self.generations[entity.index as usize] =
             self.generations[entity.index as usize].wrapping_add(1);
@@ -309,6 +313,12 @@ impl World {
     }
 
     pub(crate) fn entities_with_types(&self, required: &[TypeId]) -> Vec<Entity> {
+        let mut key = required.to_vec();
+        key.sort_by_key(type_id_key);
+        key.dedup();
+        if let Some(entities) = self.query_cache.read().unwrap().get(&key) {
+            return entities.clone();
+        }
         let mut entities = self
             .archetypes
             .values()
@@ -320,7 +330,15 @@ impl World {
             .flat_map(|archetype| archetype.entities.iter().copied())
             .collect::<Vec<_>>();
         entities.sort_by_key(|entity| (entity.index, entity.generation));
+        self.query_cache
+            .write()
+            .unwrap()
+            .insert(key, entities.clone());
         entities
+    }
+
+    fn invalidate_query_cache(&self) {
+        self.query_cache.write().unwrap().clear();
     }
 
     /// Inserts or replaces a world-global resource.
@@ -504,6 +522,7 @@ impl World {
         values: Vec<ComponentValue>,
         columns: ColumnTemplates,
     ) {
+        self.invalidate_query_cache();
         self.ensure_archetype_with_columns(&signature, columns);
         let archetype = self.archetypes.get_mut(&signature).unwrap();
         archetype.add_entity(entity, values);
