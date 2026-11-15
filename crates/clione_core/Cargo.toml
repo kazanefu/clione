@@ -1,8 +1,13 @@
 [package]
 name = "clione_core"
-edition = "2024"
+edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+description = "Core functionality of the Clione game engine"
+readme = "README.md"
+keywords = ["game-engine", "gamedev"]
+categories = ["game-development"]
 
 [dependencies]

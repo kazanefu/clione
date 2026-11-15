@@ -1,9 +1,14 @@
 [package]
 name = "clione"
-edition = "2024"
+edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+description = "A modular game engine written in Rust"
+readme = "README.md"
+keywords = ["game-engine", "gamedev"]
+categories = ["game-development"]
 
 [dependencies]
 clione_core.workspace = true
