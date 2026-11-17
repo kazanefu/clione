@@ -231,6 +231,19 @@ pub enum InputEvent {
     Quit,
 }
 
+/// The state of an input event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputState {
+    /// A key was just pressed.
+    JustPressed,
+    /// A key was just released.
+    Pressed,
+    /// A key was just released.
+    JustReleased,
+    /// A key is not pressed.
+    Released,
+}
+
 /// The current terminal size resource.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TerminalSize(pub Size);
