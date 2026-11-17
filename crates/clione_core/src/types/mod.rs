@@ -195,54 +195,8 @@ impl Frame {
     }
 }
 
-/// A keyboard key or text input.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum Key {
-    /// A Unicode character.
-    Char(char),
-    /// Escape.
-    Escape,
-    /// Enter.
-    Enter,
-    /// Backspace.
-    Backspace,
-    /// Arrow key.
-    Up,
-    /// Arrow key.
-    Down,
-    /// Arrow key.
-    Left,
-    /// Arrow key.
-    Right,
-}
-
-/// An input event independent of terminal parsing.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InputEvent {
-    /// A key was pressed.
-    KeyDown(Key),
-    /// A key was released.
-    KeyUp(Key),
-    /// Text input.
-    Text(char),
-    /// Terminal size changed.
-    Resize(Size),
-    /// The input source requested termination.
-    Quit,
-}
-
-/// The state of an input event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InputState {
-    /// A key was just pressed.
-    JustPressed,
-    /// A key was just released.
-    Pressed,
-    /// A key was just released.
-    JustReleased,
-    /// A key is not pressed.
-    Released,
-}
+mod input;
+pub use input::{InputEvent, InputState, Key, KeyCode};
 
 /// The current terminal size resource.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
