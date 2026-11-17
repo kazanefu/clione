@@ -9,6 +9,8 @@ pub use clione_core::{
     ScheduleStage, ScheduleTarget, Size, State, System, SystemContext, SystemId, TerminalSize,
     Time, VirtualTime, With, Without, World, WorldError, init_state,
 };
+pub use clione_input;
+pub use clione_input::{InputPlugin, KeyboardInput};
 
 /// Commonly used Clione types.
 pub mod prelude {
