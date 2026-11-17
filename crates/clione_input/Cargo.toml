@@ -1,9 +1,13 @@
 [package]
 name = "clione_input"
-edition = "2024"
+edition.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Input handling module for the Clione game engine"
+readme = "README.md"
+keywords = ["game-engine", "gamedev"]
+categories = ["game-development"]
 
 [dependencies]
 clione_core.workspace = true
