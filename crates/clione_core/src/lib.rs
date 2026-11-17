@@ -46,7 +46,8 @@ pub use state::State;
 pub use system_param::SystemContext;
 pub use time::{FixedTime, Time, VirtualTime};
 pub use types::{
-    Cell, Color, Frame, InputEvent, InputState, Key, Layer, Point, Rect, Size, TerminalSize,
+    Cell, Color, Frame, InputEvent, InputState, Key, KeyCode, Layer, Point, Rect, Size,
+    TerminalSize,
 };
 pub use world::{World, WorldError};
 
