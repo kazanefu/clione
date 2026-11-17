@@ -22,14 +22,14 @@ pub enum Key {
 }
 
 /// An input event independent of terminal parsing.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InputEvent {
     /// A key was pressed.
     KeyDown(KeyCode),
     /// A key was released.
     KeyUp(KeyCode),
     /// Text input.
-    Text(char),
+    Text(String),
     /// Terminal size changed.
     Resize(Size),
     /// The input source requested termination.
