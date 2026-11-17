@@ -4,25 +4,26 @@ version = 4
 
 [[package]]
 name = "clione"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clione_core",
+ "clione_input",
 ]
 
 [[package]]
 name = "clione_core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "clione_input"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clione_core",
 ]
 
 [[package]]
 name = "clione_render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clione_core",
  "clione_terminal",
@@ -30,11 +31,11 @@ dependencies = [
 
 [[package]]
 name = "clione_terminal"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "sandbox"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clione",
 ]
