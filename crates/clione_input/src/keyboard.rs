@@ -19,6 +19,7 @@ pub struct KeyboardInput {
     just_released: HashSet<Key>,
 }
 
+/// A trait for types that can be used to identify keys in the `KeyboardInput` struct. This trait allows for checking the state of keys using different key representations, such as `KeyCode` and `Key`.
 pub trait KeyIdentifier {
     fn pressed(&self, keyboard_input: &KeyboardInput) -> bool;
     fn just_pressed(&self, keyboard_input: &KeyboardInput) -> bool;
