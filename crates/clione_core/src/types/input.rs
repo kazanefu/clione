@@ -21,13 +21,32 @@ pub enum Key {
     Right,
 }
 
+/// The state of a button (key) input.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ButtonState {
+    /// The button was just pressed.
+    Pressed,
+    /// The button was just released.
+    Released,
+}
+
+/// A keyboard event.
+/// if key_code is available, it will be Some(KeyCode), otherwise None.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyboardEvent {
+    /// The key that was pressed or released.
+    pub key: Key,
+    /// The key code of the key that was pressed or released.
+    pub key_code: Option<KeyCode>,
+    /// The state of the key (pressed or released).
+    pub state: ButtonState,
+}
+
 /// An input event independent of terminal parsing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InputEvent {
-    /// A key was pressed.
-    KeyDown(KeyCode),
-    /// A key was released.
-    KeyUp(KeyCode),
+    /// A keyboard event.
+    Keyboard(KeyboardEvent),
     /// Text input.
     Text(String),
     /// Terminal size changed.
@@ -41,7 +60,7 @@ pub enum InputEvent {
 pub enum InputState {
     /// A key was just pressed.
     JustPressed,
-    /// A key was just released.
+    /// A key was pressed.
     Pressed,
     /// A key was just released.
     JustReleased,

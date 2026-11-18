@@ -196,7 +196,7 @@ impl Frame {
 }
 
 mod input;
-pub use input::{InputEvent, InputState, Key, KeyCode};
+pub use input::{ButtonState, InputEvent, InputState, Key, KeyCode, KeyboardEvent};
 
 /// The current terminal size resource.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -1,4 +1,4 @@
-use clione_core::{App, InputEvent, InputState, KeyCode};
+use clione_core::{App, InputEvent, InputState, Key, KeyCode};
 
 use crate::{InputPlugin, KeyboardInput};
 
@@ -6,7 +6,7 @@ use crate::{InputPlugin, KeyboardInput};
 fn key_press() {
     let mut input = KeyboardInput::default();
 
-    input.press(KeyCode::KeyW);
+    input.press_code(Some(KeyCode::KeyW));
 
     assert!(input.pressed(KeyCode::KeyW));
     assert!(input.just_pressed(KeyCode::KeyW));
@@ -17,9 +17,9 @@ fn key_press() {
 fn key_release() {
     let mut input = KeyboardInput::default();
 
-    input.press(KeyCode::KeyW);
+    input.press_code(Some(KeyCode::KeyW));
     input.clear_frame();
-    input.release(KeyCode::KeyW);
+    input.release_code(Some(KeyCode::KeyW));
 
     assert!(!input.pressed(KeyCode::KeyW));
     assert!(!input.just_pressed(KeyCode::KeyW));
@@ -30,8 +30,8 @@ fn key_release() {
 fn repeated_press() {
     let mut input = KeyboardInput::default();
 
-    input.press(KeyCode::KeyW);
-    input.press(KeyCode::KeyW);
+    input.press_code(Some(KeyCode::KeyW));
+    input.press_code(Some(KeyCode::KeyW));
 
     assert!(input.just_pressed(KeyCode::KeyW));
 }
@@ -42,7 +42,11 @@ fn keyboard_input_plugin() {
     app.add_plugins(InputPlugin);
 
     app.world_mut()
-        .send_message(InputEvent::KeyDown(KeyCode::KeyW));
+        .send_message(InputEvent::Keyboard(clione_core::KeyboardEvent {
+            key: clione_core::Key::Char('w'),
+            key_code: Some(KeyCode::KeyW),
+            state: clione_core::ButtonState::Pressed,
+        }));
 
     app.update();
 
@@ -51,6 +55,7 @@ fn keyboard_input_plugin() {
     assert_eq!(input.get(KeyCode::KeyW), InputState::JustPressed);
     assert!(input.pressed(KeyCode::KeyW));
     assert!(input.just_pressed(KeyCode::KeyW));
+    assert!(input.just_pressed(Key::Char('w')));
 
     // Next frame: transient state is cleared.
     app.update();
@@ -59,10 +64,15 @@ fn keyboard_input_plugin() {
 
     assert_eq!(input.get(KeyCode::KeyW), InputState::Pressed);
     assert!(!input.just_pressed(KeyCode::KeyW));
+    assert!(!input.just_pressed(Key::Char('w')));
 
     // Release the key.
     app.world_mut()
-        .send_message(InputEvent::KeyUp(KeyCode::KeyW));
+        .send_message(InputEvent::Keyboard(clione_core::KeyboardEvent {
+            key: clione_core::Key::Char('w'),
+            key_code: Some(KeyCode::KeyW),
+            state: clione_core::ButtonState::Released,
+        }));
 
     app.update();
 
