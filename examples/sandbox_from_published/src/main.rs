@@ -17,9 +17,9 @@ struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.world_mut().add_messages::<KilledEnemy>();
-        app.world_mut().add_messages::<DieadPlayer>();
         app.add_systems(ScheduleStage::Startup, setup_game)
+            .add_message::<DieadPlayer>()
+            .add_message::<KilledEnemy>()
             .add_systems(ScheduleStage::Update, update)
             .add_systems(ScheduleStage::Update, check_player_death)
             .add_systems(ScheduleStage::Update, check_enemy_death)
