@@ -358,10 +358,12 @@ fn resource_mut_marks_resource_changed() {
 }
 
 #[test]
-fn app_clears_events_after_each_update() {
+fn app_clears_previous_messages_after_each_update_using_double_buffer() {
     let mut app = App::new();
     app.world_mut().add_events::<u32>();
     app.world_mut().send_event(7_u32);
+    assert_eq!(app.world().events::<u32>().unwrap().iter().count(), 1);
+    app.update_with_delta(std::time::Duration::ZERO);
     assert_eq!(app.world().events::<u32>().unwrap().iter().count(), 1);
     app.update_with_delta(std::time::Duration::ZERO);
     assert_eq!(app.world().events::<u32>().unwrap().iter().count(), 0);
