@@ -95,12 +95,16 @@ fn schedule_runs_systems_in_registration_order_per_stage() {
     let mut world = World::new();
     world.insert_resource(Vec::<u8>::new());
     let mut schedule = Schedule::new();
-    schedule.add_system(ScheduleStage::Update, |world: &mut World| {
-        world.resource_mut::<Vec<u8>>().unwrap().push(1);
-    });
-    schedule.add_system(ScheduleStage::Update, |world: &mut World| {
-        world.resource_mut::<Vec<u8>>().unwrap().push(2);
-    });
+    schedule
+        .add_system(ScheduleStage::Update, |world: &mut World| {
+            world.resource_mut::<Vec<u8>>().unwrap().push(1);
+        })
+        .unwrap();
+    schedule
+        .add_system(ScheduleStage::Update, |world: &mut World| {
+            world.resource_mut::<Vec<u8>>().unwrap().push(2);
+        })
+        .unwrap();
 
     schedule.run(&mut world);
 
@@ -180,7 +184,9 @@ fn dependencies_override_registration_order() {
     let first = schedule.add_system(ScheduleStage::Update, |world: &mut World| {
         world.resource_mut::<Vec<u8>>().unwrap().push(1);
     });
-    schedule.add_dependency(first, second).unwrap();
+    schedule
+        .add_dependency(first.unwrap(), second.unwrap())
+        .unwrap();
 
     schedule.run(&mut world);
 
@@ -212,12 +218,14 @@ fn startup_runs_once_and_on_enter_runs_on_state_changes() {
     world.insert_resource(State::new(Overlay::Hidden));
     world.insert_resource(State::new(Overlay::Hidden));
     let mut schedule = Schedule::new();
-    schedule.add_system(ScheduleStage::Startup, |world: &mut World| {
-        world
-            .resource_mut::<Vec<&'static str>>()
-            .unwrap()
-            .push("startup");
-    });
+    schedule
+        .add_system(ScheduleStage::Startup, |world: &mut World| {
+            world
+                .resource_mut::<Vec<&'static str>>()
+                .unwrap()
+                .push("startup");
+        })
+        .unwrap();
     schedule.add_on_enter(Screen::Menu, |world: &mut World| {
         world
             .resource_mut::<Vec<&'static str>>()
@@ -275,7 +283,9 @@ fn app_exposes_system_ids_for_dependencies() {
             .unwrap()
             .push("second");
     });
-    app.add_dependency(first, second).unwrap().update();
+    app.add_dependency(first.unwrap(), second.unwrap())
+        .unwrap()
+        .update();
 
     assert_eq!(
         app.world().resource::<Vec<&'static str>>().unwrap(),
@@ -344,7 +354,9 @@ fn commands_are_flushed_between_systems() {
     let second = app.add_system(ScheduleStage::Update, move |world: &mut World| {
         assert_eq!(world.get::<Name>(entity), Some(&Name("queued")));
     });
-    app.add_dependency(first, second).unwrap().update();
+    app.add_dependency(first.unwrap(), second.unwrap())
+        .unwrap()
+        .update();
 }
 
 #[test]
@@ -476,4 +488,46 @@ fn entity_generation_and_component_change_boundaries_are_safe() {
     assert_eq!(old.index(), replacement.index());
     assert_ne!(old, replacement);
     assert!(!world.is_alive(old));
+}
+
+#[test]
+fn add_systems_can_accept_param_systems() {
+    let mut app = App::new();
+    app.insert_resource(0_u32);
+    app.add_param_system(ScheduleStage::Update, |ctx: &mut SystemContext| {
+        *ctx.resource_mut::<u32>().unwrap() += 1;
+    });
+    app.update_with_delta(std::time::Duration::ZERO);
+
+    assert_eq!(app.world().resource::<u32>(), Some(&1));
+}
+
+#[test]
+fn try_add_systems_returns_error_if_system_already_registered() {
+    let mut app = App::new();
+    let system = |_: &mut World| {};
+    let first = app.try_add_systems(ScheduleStage::Update, system);
+    assert!(first.is_ok());
+    let second = app.try_add_systems(ScheduleStage::Update, system);
+    assert!(second.is_err());
+}
+
+#[test]
+fn get_system_id_from_system_and_add_dependency_using_system_id() {
+    let mut app = App::new();
+    app.insert_resource(Vec::<u32>::new());
+    let first = |ctx: &mut SystemContext| {
+        let vec = ctx.resource_mut::<Vec<u32>>().unwrap();
+        vec.push(1);
+    };
+    let second = |world: &mut World| {
+        let vec = world.resource_mut::<Vec<u32>>().unwrap();
+        vec.push(2);
+    };
+    app.add_systems(ScheduleStage::Update, second);
+    app.add_systems(ScheduleStage::Update, first);
+    let first_id = app.system_id(first).unwrap();
+    let second_id = app.system_id(second).unwrap();
+    app.add_dependency(first_id, second_id).unwrap().update();
+    assert_eq!(app.world().resource::<Vec<u32>>(), Some(&vec![1, 2]));
 }

@@ -241,23 +241,24 @@ pub struct SystemId(usize);
 
 /// The fixed execution phases of a game tick.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(usize)]
 pub enum ScheduleStage {
     /// Runs once before the first game tick.
-    Startup,
+    Startup = 0,
     /// Runs before input translation.
-    PreInput,
+    PreInput = 1,
     /// Translates external input into game intent.
-    Input,
+    Input = 2,
     /// Runs simulation and game rules.
-    Update,
+    Update = 3,
     /// Runs zero or more times per frame at a fixed timestep.
-    FixedUpdate,
+    FixedUpdate = 4,
     /// Applies cleanup and deferred structural changes.
-    PostUpdate,
+    PostUpdate = 5,
     /// Builds render data from the world.
-    RenderPrepare,
+    RenderPrepare = 6,
     /// Emits render data to the terminal.
-    Render,
+    Render = 7,
 }
 
 impl fmt::Display for ScheduleStage {
@@ -285,6 +286,10 @@ pub enum ScheduleError {
     Cycle,
     /// A dependency crosses fixed execution stages in the wrong direction.
     InvalidStageOrder,
+    /// Requested a system that is not in this schedule.
+    SystemNotFound,
+    /// Attempted to register a system that already exists in this schedule.
+    SystemAlreadyExists,
 }
 
 struct SystemNode {
@@ -325,6 +330,9 @@ pub struct Schedule {
     on_exit_systems: Vec<OnExitNode>,
     on_event_systems: Vec<OnEventNode>,
     startup_ran: bool,
+    system_ids: HashMap<TypeId, SystemId>,
+    execution_order_cache: [Vec<SystemId>; ScheduleStage::COUNT],
+    dirty_stages: [bool; ScheduleStage::COUNT],
 }
 
 impl Schedule {
@@ -334,17 +342,17 @@ impl Schedule {
     }
 
     /// Adds a mutable system and returns its handle.
-    pub fn add_system<S>(&mut self, stage: ScheduleStage, system: S) -> SystemId
+    pub fn add_system<S>(
+        &mut self,
+        stage: ScheduleStage,
+        system: S,
+    ) -> Result<SystemId, ScheduleError>
     where
         S: System + 'static,
     {
-        let id = SystemId(self.systems.len());
-        self.systems.push(SystemNode {
-            stage,
-            system: Box::new(system),
-            dependencies: Vec::new(),
-        });
-        id
+        let id = self.register_system::<_, S, _>(stage, system)?;
+        self.system_ids.entry(TypeId::of::<S>()).or_insert(id);
+        Ok(id)
     }
 
     /// Adds a read-only system for execution by `run_parallel`.
@@ -359,7 +367,7 @@ impl Schedule {
     }
 
     /// Adds a system to a stage or state lifecycle target.
-    pub fn add_systems<T, F, M>(&mut self, target: T, system: F)
+    pub fn add_systems<T, F, M>(&mut self, target: T, system: F) -> Result<(), ScheduleError>
     where
         T: IntoScheduleTarget,
         F: IntoSystem<M> + 'static,
@@ -368,11 +376,8 @@ impl Schedule {
         let system = system.into_system();
         match target.into_schedule_target() {
             ScheduleTarget::Stage(stage) => {
-                self.systems.push(SystemNode {
-                    stage,
-                    system: Box::new(system),
-                    dependencies: Vec::new(),
-                });
+                let id = self.register_system::<_, F, _>(stage, system)?;
+                self.system_ids.entry(TypeId::of::<F>()).or_insert(id);
             }
             ScheduleTarget::OnEnter {
                 state_type,
@@ -397,6 +402,7 @@ impl Schedule {
                 system: Box::new(system),
             }),
         }
+        Ok(())
     }
 
     /// Adds a system that receives a [`SystemContext`].
@@ -419,7 +425,9 @@ impl Schedule {
         S: PartialEq + Clone + Send + Sync + 'static,
         F: System + 'static,
     {
-        self.add_systems(OnEnter(state), system);
+        self.add_systems(OnEnter(state), system).expect(
+            "adding OnEnter system should not fail because it does not depend on other systems",
+        );
     }
 
     /// Adds a system that runs when the typed state exits `state`.
@@ -428,7 +436,9 @@ impl Schedule {
         S: PartialEq + Clone + Send + Sync + 'static,
         F: System + 'static,
     {
-        self.add_systems(OnExit(state), system);
+        self.add_systems(OnExit(state), system).expect(
+            "adding OnEnter system should not fail because it does not depend on other systems",
+        );
     }
 
     /// Makes `before` run before `after`.
@@ -450,7 +460,7 @@ impl Schedule {
             return Err(ScheduleError::Cycle);
         }
         self.systems[after.0].dependencies.push(before);
-        if self.execution_order(after_stage).is_err() {
+        if self.update_execution_order(after_stage).is_err() {
             self.systems[after.0].dependencies.pop();
             return Err(ScheduleError::Cycle);
         }
@@ -459,10 +469,10 @@ impl Schedule {
 
     /// Runs one stage in dependency order.
     pub fn run_stage(&mut self, stage: ScheduleStage, world: &mut World) {
-        let order = self
-            .execution_order(stage)
+        let _order = self
+            .update_execution_order(stage)
             .expect("schedule dependencies must be valid");
-        for id in order {
+        for id in &self.execution_order_cache[stage as usize] {
             self.systems[id.0].system.run_with_id(world, id.0);
             world.flush_commands();
         }
@@ -569,28 +579,72 @@ impl Schedule {
         }
     }
 
-    fn execution_order(&self, stage: ScheduleStage) -> Result<Vec<SystemId>, ScheduleError> {
-        let ids: Vec<_> = self
-            .systems
-            .iter()
-            .enumerate()
-            .filter_map(|(index, node)| (node.stage == stage).then_some(SystemId(index)))
-            .collect();
-        let mut order = Vec::with_capacity(ids.len());
-        let mut remaining = ids;
-        while !remaining.is_empty() {
-            let next = remaining.iter().position(|id| {
-                self.systems[id.0]
-                    .dependencies
-                    .iter()
-                    .all(|dependency| !remaining.contains(dependency))
-            });
-            let Some(index) = next else {
-                return Err(ScheduleError::Cycle);
-            };
-            order.push(remaining.remove(index));
+    fn update_execution_order<'a>(
+        &'a mut self,
+        stage: ScheduleStage,
+    ) -> Result<&'a Vec<SystemId>, ScheduleError> {
+        if !self.dirty_stages[stage as usize] {
+            let ids: Vec<_> = self
+                .systems
+                .iter()
+                .enumerate()
+                .filter_map(|(index, node)| (node.stage == stage).then_some(SystemId(index)))
+                .collect();
+            let mut order = Vec::with_capacity(ids.len());
+            let mut remaining = ids;
+            while !remaining.is_empty() {
+                let next = remaining.iter().position(|id| {
+                    self.systems[id.0]
+                        .dependencies
+                        .iter()
+                        .all(|dependency| !remaining.contains(dependency))
+                });
+                let Some(index) = next else {
+                    return Err(ScheduleError::Cycle);
+                };
+                order.push(remaining.remove(index));
+            }
+            self.execution_order_cache[stage as usize] = order;
         }
-        Ok(order)
+        Ok(&self.execution_order_cache[stage as usize])
+    }
+    fn register_system<S, F, M>(
+        &mut self,
+        stage: ScheduleStage,
+        system: S,
+    ) -> Result<SystemId, ScheduleError>
+    where
+        S: System + 'static,
+        F: IntoSystem<M> + 'static,
+        M: 'static,
+    {
+        if self.id_from_type::<F, M>().is_ok() {
+            return Err(ScheduleError::SystemAlreadyExists);
+        }
+        let id = SystemId(self.systems.len());
+        self.systems.push(SystemNode {
+            stage,
+            system: Box::new(system),
+            dependencies: Vec::new(),
+        });
+        Ok(id)
+    }
+
+    /// Returns the stable identifier of a system registered with `add_systems`.
+    pub fn id<F, M>(&self, _: F) -> Result<SystemId, ScheduleError>
+    where
+        F: IntoSystem<M> + 'static,
+        M: 'static,
+    {
+        self.id_from_type::<F, _>()
+    }
+    fn id_from_type<F: IntoSystem<M> + 'static, M: 'static>(
+        &self,
+    ) -> Result<SystemId, ScheduleError> {
+        self.system_ids
+            .get(&TypeId::of::<F>())
+            .copied()
+            .ok_or(ScheduleError::SystemNotFound)
     }
 }
 
@@ -603,4 +657,5 @@ impl ScheduleStage {
         Self::RenderPrepare,
         Self::Render,
     ];
+    const COUNT: usize = 8;
 }
