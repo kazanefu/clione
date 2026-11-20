@@ -1,12 +1,13 @@
 use clione_core::{App, InputEvent, Plugin, ScheduleStage, SystemContext};
 
-use crate::{keyboard::KeyboardInput, text::TextInput};
+use crate::{keyboard::KeyboardInput, settings::InputSettings, text::TextInput};
 
 /// A plugin that adds input handling to the application.
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(InputSettings::default());
         app.insert_resource(KeyboardInput::default());
         app.insert_resource(TextInput::default());
 

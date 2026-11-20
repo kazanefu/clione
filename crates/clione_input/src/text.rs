@@ -1,5 +1,6 @@
 use clione_core::InputEvent;
 
+/// `Resource` for text input state.
 /// Represents the state of text input for a single frame.
 #[derive(Debug, Default)]
 pub struct TextInput {
