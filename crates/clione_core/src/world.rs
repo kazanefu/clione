@@ -64,7 +64,7 @@ pub struct World {
     component_changes: HashMap<(Entity, TypeId), u64>,
     added_components: HashSet<(Entity, TypeId)>,
     next_component_generation: u64,
-    event_clearers: Vec<fn(&mut World)>,
+    message_updaters: Vec<fn(&mut World)>,
     message_cursors: HashMap<(usize, TypeId), usize>,
     commands: Commands,
 }
@@ -454,7 +454,7 @@ impl World {
     pub fn add_events<T: 'static + Send + Sync>(&mut self) {
         if self.resource::<Events<T>>().is_none() {
             self.insert_resource(Events::<T>::default());
-            self.event_clearers.push(clear_events::<T>);
+            self.message_updaters.push(update_messages::<T>);
         }
     }
 
@@ -464,10 +464,10 @@ impl World {
     }
 
     /// Clears all registered event queues.
-    pub fn clear_events(&mut self) {
-        let clearers = self.event_clearers.clone();
-        for clear in clearers {
-            clear(self);
+    pub fn update_messages(&mut self) {
+        let updaters = self.message_updaters.clone();
+        for update in updaters {
+            update(self);
         }
     }
 
@@ -592,12 +592,12 @@ impl World {
     }
 }
 
-fn clear_events<T: 'static + Send + Sync>(world: &mut World) {
+fn update_messages<T: 'static + Send + Sync>(world: &mut World) {
     if let Some(events) = world.resources.get_mut(&TypeId::of::<Events<T>>()) {
         events
             .downcast_mut::<Events<T>>()
             .expect("event resource type matches")
-            .clear();
+            .update();
     }
 }
 

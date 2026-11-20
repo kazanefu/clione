@@ -1,19 +1,58 @@
+/// A buffer of messages with a starting message index.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MessageBuffer<T> {
+    items: Vec<T>,
+    start_count: usize,
+}
+
+impl<T> Default for MessageBuffer<T> {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            start_count: 0,
+        }
+    }
+}
+
+impl<T> MessageBuffer<T> {
+    pub(crate) fn clear(&mut self, start_count: usize) {
+        self.items.clear();
+        self.start_count = start_count;
+    }
+}
+
 /// A tick-oriented queue of messages of one type.
 #[derive(Debug)]
 pub struct Messages<T> {
-    items: Vec<T>,
+    buffers: [MessageBuffer<T>; 2],
+    current: usize,
+    message_count: usize,
 }
 
 impl<T> Default for Messages<T> {
     fn default() -> Self {
-        Self { items: Vec::new() }
+        Self {
+            buffers: [MessageBuffer::default(), MessageBuffer::default()],
+            current: 0,
+            message_count: 0,
+        }
     }
 }
 
 impl<T> Messages<T> {
     /// Appends a message to the current queue.
     pub fn write(&mut self, message: T) {
-        self.items.push(message);
+        self.buffers[self.current].items.push(message);
+        self.message_count += 1;
+    }
+
+    /// Advances the message queue to the next tick, clearing messages from two ticks ago.
+    pub fn update(&mut self) {
+        self.current = 1 - self.current;
+
+        let buffer = &mut self.buffers[self.current];
+        buffer.clear(self.message_count);
+        buffer.start_count = self.message_count;
     }
 
     /// Appends a message using the legacy event terminology.
@@ -21,19 +60,65 @@ impl<T> Messages<T> {
         self.write(message);
     }
 
-    /// Iterates over queued messages without consuming them.
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.items.iter()
+    /// Iterates over queued messages from a specific buffer without consuming them.
+    fn iter_from(&self, index: usize, start: usize, end: usize) -> impl Iterator<Item = &T> {
+        let buffer = &self.buffers[index];
+
+        let len = buffer.items.len();
+
+        let start_index = start.saturating_sub(buffer.start_count).min(len);
+
+        let end_index = end
+            .saturating_sub(buffer.start_count)
+            .clamp(start_index, len);
+
+        buffer.items[start_index..end_index].iter()
     }
 
-    /// Removes and returns all queued messages.
+    /// Iterates over all currently retained messages without consuming them.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.iter_from_range(0, self.message_count)
+    }
+
+    /// Iterates over retained messages within the specified message index range.
+    ///
+    /// The range is half-open (`start..end`). Messages that are no longer
+    /// retained in the queue are not returned.
+    pub fn iter_from_range(&self, start: usize, end: usize) -> impl Iterator<Item = &T> {
+        let current = self.current;
+        let previous = 1 - current;
+        self.iter_from(previous, start, end)
+            .chain(self.iter_from(current, start, end))
+    }
+
+    /// Removes and returns all retained messages, oldest first.
+    ///
+    /// Drained messages are no longer available to message readers.
     pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
-        self.items.drain(..)
+        let previous = 1 - self.current;
+        let current = self.current;
+        let message_count = self.message_count;
+
+        // Reset the index of both buffers so subsequent writes remain aligned.
+        self.buffers[previous].start_count = message_count;
+        self.buffers[current].start_count = message_count;
+
+        let (a, b) = self.buffers.split_at_mut(1);
+
+        let (previous_items, current_items) = if previous == 0 {
+            (&mut a[0].items, &mut b[0].items)
+        } else {
+            (&mut b[0].items, &mut a[0].items)
+        };
+
+        previous_items.drain(..).chain(current_items.drain(..))
     }
 
     /// Removes all queued messages.
     pub fn clear(&mut self) {
-        self.items.clear();
+        for buffer in &mut self.buffers {
+            buffer.clear(self.message_count);
+        }
     }
 }
 
@@ -52,14 +137,14 @@ impl<'a, T> MessageReader<'a, T> {
         Self { messages, cursor }
     }
 
-    /// Reads messages that have not been seen by this reader.
+    /// Reads messages written since the previous read, advancing the reader's cursor.
+    ///
+    /// Messages that are no longer retained in the queue cannot be read.
     pub fn read(&mut self) -> impl Iterator<Item = &'a T> {
-        if *self.cursor > self.messages.items.len() {
-            *self.cursor = 0;
-        }
         let start = *self.cursor;
-        *self.cursor = self.messages.items.len();
-        self.messages.items[start..].iter()
+        let end = self.messages.message_count;
+        *self.cursor = end;
+        self.messages.iter_from_range(start, end)
     }
 }
 
