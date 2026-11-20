@@ -7,4 +7,4 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-clione = { version = "0.1.2" }
+clione = { version = "0.1.3" }

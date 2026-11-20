@@ -18,8 +18,7 @@ impl Plugin for GamePlugin {
     }
 }
 
-fn setup_game(world: &mut World) {
-    let mut ctx = world.system_context();
+fn setup_game(ctx: &mut SystemContext) {
     let commands = ctx.commands();
 
     let player = ctx.spawn();
