@@ -91,6 +91,28 @@ where
     }
 }
 
+pub struct Direct;
+pub struct WithContext;
+
+pub trait IntoSystem<M> {
+    type System: System;
+    fn into_system(self) -> Self::System;
+}
+
+impl<F: System> IntoSystem<Direct> for F {
+    type System = F;
+    fn into_system(self) -> Self::System {
+        self
+    }
+}
+
+impl<F: ParamSystem> IntoSystem<WithContext> for F {
+    type System = ParamSystemAdapter<F>;
+    fn into_system(self) -> Self::System {
+        ParamSystemAdapter { system: self }
+    }
+}
+
 /// A target accepted by [`Schedule::add_systems`].
 pub trait IntoScheduleTarget {
     /// Converts the public target into an internal schedule target.
@@ -181,7 +203,7 @@ where
     }
 }
 
-struct ParamSystemAdapter<F> {
+pub struct ParamSystemAdapter<F> {
     system: F,
 }
 
@@ -337,11 +359,13 @@ impl Schedule {
     }
 
     /// Adds a system to a stage or state lifecycle target.
-    pub fn add_systems<T, F>(&mut self, target: T, system: F)
+    pub fn add_systems<T, F, M>(&mut self, target: T, system: F)
     where
         T: IntoScheduleTarget,
-        F: System + 'static,
+        F: IntoSystem<M> + 'static,
+        M: 'static,
     {
+        let system = system.into_system();
         match target.into_schedule_target() {
             ScheduleTarget::Stage(stage) => {
                 self.systems.push(SystemNode {

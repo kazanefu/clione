@@ -1,6 +1,6 @@
 use crate::{
     FixedTime, IntoScheduleTarget, Plugin, ReadOnlySystem, Schedule, ScheduleError, ScheduleStage,
-    State, System, SystemId, Time, VirtualTime, World,
+    State, System, SystemId, Time, VirtualTime, World, schedule::IntoSystem,
 };
 use std::time::Instant;
 
@@ -51,10 +51,11 @@ impl App {
     }
 
     /// Adds a system to a stage or state lifecycle target.
-    pub fn add_systems<T, F>(&mut self, target: T, system: F) -> &mut Self
+    pub fn add_systems<T, F, M>(&mut self, target: T, system: F) -> &mut Self
     where
         T: IntoScheduleTarget,
-        F: System + 'static,
+        F: IntoSystem<M> + 'static,
+        M: 'static,
     {
         self.schedule.add_systems(target, system);
         self
