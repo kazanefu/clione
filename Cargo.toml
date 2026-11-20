@@ -9,14 +9,14 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kazanefu/clione"
 authors = ["kazanefu <kazanefu12@gmail.com>"]
 
 [workspace.dependencies]
-clione_core = { path = "crates/clione_core", version = "0.1.3" }
-clione_render = { path = "crates/clione_render", version = "0.1.3" }
-clione_input = { path = "crates/clione_input", version = "0.1.3" }
-clione_terminal = { path = "crates/clione_terminal", version = "0.1.3" }
+clione_core = { path = "crates/clione_core", version = "0.1.4" }
+clione_render = { path = "crates/clione_render", version = "0.1.4" }
+clione_input = { path = "crates/clione_input", version = "0.1.4" }
+clione_terminal = { path = "crates/clione_terminal", version = "0.1.4" }
