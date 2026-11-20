@@ -125,6 +125,12 @@ impl App {
         self
     }
 
+    /// Adds a message type to the application world.
+    pub fn add_message<T: 'static + Send + Sync>(&mut self) -> &mut Self {
+        self.world.add_messages::<T>();
+        self
+    }
+
     /// Adds a read-only system to a stage.
     pub fn add_read_only_system<F>(&mut self, stage: crate::ScheduleStage, system: F) -> &mut Self
     where
