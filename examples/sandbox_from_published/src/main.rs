@@ -1,11 +1,13 @@
 use clione::prelude::*;
 
+// components
 struct Hp(u32);
 struct Player;
 struct Enemy;
 
-struct DieadPlayer;
-struct KilledEnemy(Entity);
+// messages
+struct PlayerDead;
+struct EnemyKilled(Entity);
 
 fn main() {
     println!("Hello, clione!");
@@ -13,13 +15,14 @@ fn main() {
     app.add_plugins(InputPlugin).add_plugins(GamePlugin).run();
 }
 
+// A plugin that sets up the game world and systems.
 struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(ScheduleStage::Startup, setup_game)
-            .add_message::<DieadPlayer>()
-            .add_message::<KilledEnemy>()
+            .add_message::<PlayerDead>()
+            .add_message::<EnemyKilled>()
             .add_systems(ScheduleStage::Update, update)
             .add_systems(ScheduleStage::Update, check_player_death)
             .add_systems(ScheduleStage::Update, check_enemy_death)
@@ -36,6 +39,9 @@ impl Plugin for GamePlugin {
     }
 }
 
+// systems
+
+// Sets up the game world with a player and an enemy.
 fn setup_game(ctx: &mut SystemContext) {
     let commands = ctx.commands();
 
@@ -48,7 +54,7 @@ fn setup_game(ctx: &mut SystemContext) {
     commands.insert(enemy, Enemy);
     commands.insert(enemy, Hp(50));
 }
-
+// Updates the HP of the player and enemy each tick.
 fn update(ctx: &mut SystemContext) {
     let mut hp_query = ctx.query_mut::<&mut Hp>();
     let player_query = ctx.query::<With<Player>>();
@@ -69,30 +75,33 @@ fn update(ctx: &mut SystemContext) {
     }
 }
 
+// Checks if the player is dead and sends a message if so.
 fn check_player_death(ctx: &mut SystemContext) {
     let mut player_query = ctx.query_mut::<(&Hp, &Player)>();
-    let mut message_writer = ctx.message_writer::<DieadPlayer>();
+    let mut message_writer = ctx.message_writer::<PlayerDead>();
     for (entity, (hp, _)) in player_query.iter_mut() {
         if hp.0 <= 0 {
             println!("Player {:?} is dead!", entity);
-            message_writer.write(DieadPlayer);
+            message_writer.write(PlayerDead);
         }
     }
 }
 
+// Checks if any enemies are dead and sends a message for each one.
 fn check_enemy_death(ctx: &mut SystemContext) {
     let mut enemy_query = ctx.query_mut::<(&Hp, &Enemy)>();
-    let mut message_writer = ctx.message_writer::<KilledEnemy>();
+    let mut message_writer = ctx.message_writer::<EnemyKilled>();
     for (entity, (hp, _)) in enemy_query.iter_mut() {
         if hp.0 <= 0 {
             println!("Enemy {:?} is dead!", entity);
-            message_writer.write(KilledEnemy(entity));
+            message_writer.write(EnemyKilled(entity));
         }
     }
 }
 
+// Handles the player death message and requests an application exit.
 fn handle_player_death(ctx: &mut SystemContext) {
-    let mut message_reader = ctx.message_reader::<DieadPlayer>().unwrap();
+    let mut message_reader = ctx.message_reader::<PlayerDead>().unwrap();
     let app_exit = ctx.resource_mut::<AppExit>().unwrap();
     for _ in message_reader.read() {
         println!("Handling player death...");
@@ -100,8 +109,9 @@ fn handle_player_death(ctx: &mut SystemContext) {
     }
 }
 
+// Handles the enemy death message, despawns the dead enemy, and spawns a new one.
 fn handle_enemy_death(ctx: &mut SystemContext) {
-    let mut message_reader = ctx.message_reader::<KilledEnemy>().unwrap();
+    let mut message_reader = ctx.message_reader::<EnemyKilled>().unwrap();
     let commands = ctx.commands();
     for message in message_reader.read() {
         println!("Handling enemy death...");
