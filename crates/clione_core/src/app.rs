@@ -57,15 +57,33 @@ impl App {
         F: IntoSystem<M> + 'static,
         M: 'static,
     {
-        self.schedule.add_systems(target, system);
+        let _ = self.schedule.add_systems(target, system);
         self
+    }
+    /// Adds a system to a stage or state lifecycle target, returning an error if the system conflicts with existing systems.
+    pub fn try_add_systems<T, F, M>(
+        &mut self,
+        target: T,
+        system: F,
+    ) -> Result<&mut Self, ScheduleError>
+    where
+        T: IntoScheduleTarget,
+        F: IntoSystem<M> + 'static,
+        M: 'static,
+    {
+        self.schedule.add_systems(target, system)?;
+        Ok(self)
     }
 
     /// Adds an ordered mutable system and returns its identifier.
     ///
     /// Use the identifier with [`App::add_dependency`] when explicit ordering
     /// is required between regular stage systems.
-    pub fn add_system<F>(&mut self, stage: ScheduleStage, system: F) -> SystemId
+    pub fn add_system<F>(
+        &mut self,
+        stage: ScheduleStage,
+        system: F,
+    ) -> Result<SystemId, ScheduleError>
     where
         F: System + 'static,
     {
@@ -88,6 +106,14 @@ impl App {
     ) -> Result<&mut Self, ScheduleError> {
         self.schedule.add_dependency(before, after)?;
         Ok(self)
+    }
+
+    /// Returns the identifier of a system that was previously added to the schedule.
+    pub fn system_id<F: IntoSystem<M> + 'static, M: 'static>(
+        &self,
+        system: F,
+    ) -> Result<SystemId, ScheduleError> {
+        self.schedule.id(system)
     }
 
     /// Builds and registers a plugin on this application.
