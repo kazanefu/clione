@@ -6,8 +6,18 @@ version = 4
 name = "clione"
 version = "0.1.2"
 dependencies = [
- "clione_core",
- "clione_input",
+ "clione_core 0.1.2",
+ "clione_input 0.1.2",
+]
+
+[[package]]
+name = "clione"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9019c3be71eef84ef1eb1abd6a6502ea42eadae02c07edaeae7f9d54a8d0bd8"
+dependencies = [
+ "clione_core 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clione_input 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -15,17 +25,32 @@ name = "clione_core"
 version = "0.1.2"
 
 [[package]]
+name = "clione_core"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ced2500e56ba8fd048eaf81d6bee4671ea1c22c373c1362a852921bade3d34b"
+
+[[package]]
 name = "clione_input"
 version = "0.1.2"
 dependencies = [
- "clione_core",
+ "clione_core 0.1.2",
+]
+
+[[package]]
+name = "clione_input"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f11f73038632c973ab784c19ad7b2efaf21f614f085b75dc9ef31355af37a00"
+dependencies = [
+ "clione_core 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "clione_render"
 version = "0.1.2"
 dependencies = [
- "clione_core",
+ "clione_core 0.1.2",
  "clione_terminal",
 ]
 
@@ -37,5 +62,12 @@ version = "0.1.2"
 name = "sandbox"
 version = "0.1.2"
 dependencies = [
- "clione",
+ "clione 0.1.2",
+]
+
+[[package]]
+name = "sandbox_from_published"
+version = "0.1.2"
+dependencies = [
+ "clione 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

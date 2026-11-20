@@ -1,0 +1,10 @@
+[package]
+name = "sandbox_from_published"
+edition = "2024"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+clione = { version = "0.1.2" }
