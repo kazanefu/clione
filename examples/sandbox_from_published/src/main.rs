@@ -9,6 +9,9 @@ struct Enemy;
 struct PlayerDead;
 struct EnemyKilled(Entity);
 
+// resources
+struct KillCount(u32);
+
 fn main() {
     println!("Hello, clione!");
     let mut app = App::new();
@@ -23,6 +26,7 @@ impl Plugin for GamePlugin {
         app.add_systems(ScheduleStage::Startup, setup_game)
             .add_message::<PlayerDead>()
             .add_message::<EnemyKilled>()
+            .insert_resource(KillCount(0))
             .add_systems(ScheduleStage::Update, update)
             .add_systems(ScheduleStage::Update, check_player_death)
             .add_systems(ScheduleStage::Update, check_enemy_death)
@@ -112,10 +116,13 @@ fn handle_player_death(ctx: &mut SystemContext) {
 // Handles the enemy death message, despawns the dead enemy, and spawns a new one.
 fn handle_enemy_death(ctx: &mut SystemContext) {
     let mut message_reader = ctx.message_reader::<EnemyKilled>().unwrap();
+    let kill_count = ctx.resource_mut::<KillCount>().unwrap();
     let commands = ctx.commands();
     for message in message_reader.read() {
         println!("Handling enemy death...");
         commands.despawn(message.0);
+        kill_count.0 += 1;
+        println!("Total enemies killed: {}", kill_count.0);
         let new_enemy = ctx.spawn();
         commands.insert(new_enemy, Enemy);
         commands.insert(new_enemy, Hp(50));
