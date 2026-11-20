@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use clione_core::{ButtonState, InputEvent, InputState, Key, KeyCode};
 
+/// `Resource` for keyboard input state.
 /// Represents the state of keyboard input for a single frame.
 #[derive(Debug, Default)]
 pub struct KeyboardInput {

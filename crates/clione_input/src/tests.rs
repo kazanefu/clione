@@ -81,3 +81,44 @@ fn keyboard_input_plugin() {
     assert_eq!(input.get(KeyCode::KeyW), InputState::JustReleased);
     assert!(!input.pressed(KeyCode::KeyW));
 }
+
+#[test]
+fn text_input_plugin() {
+    let mut app = App::new();
+    app.add_plugins(InputPlugin);
+
+    app.world_mut()
+        .send_message(InputEvent::Text("Hello".to_string()));
+
+    app.update();
+
+    let input = app.world().resource::<crate::text::TextInput>().unwrap();
+
+    assert_eq!(input.just_received(), Some("Hello"));
+    assert_eq!(input.received(), "Hello");
+
+    // Next frame: transient state is cleared.
+    app.update();
+
+    let input = app.world().resource::<crate::text::TextInput>().unwrap();
+
+    assert_eq!(input.just_received(), None);
+    assert_eq!(input.received(), "Hello");
+}
+
+#[test]
+fn get_input_settings() {
+    let mut app = App::new();
+    app.add_plugins(InputPlugin);
+
+    let settings = app
+        .world()
+        .resource::<crate::settings::InputSettings>()
+        .unwrap();
+
+    assert_eq!(
+        settings.capabilities.key_code,
+        crate::settings::KeyCodeSupport::Unknown
+    );
+    assert_eq!(settings.mode, crate::settings::InputMode::Raw,)
+}
