@@ -24,6 +24,18 @@ pub trait KeyIdentifier {
     fn pressed(&self, keyboard_input: &KeyboardInput) -> bool;
     fn just_pressed(&self, keyboard_input: &KeyboardInput) -> bool;
     fn just_released(&self, keyboard_input: &KeyboardInput) -> bool;
+
+    fn state(&self, input: &KeyboardInput) -> InputState {
+        if self.just_pressed(input) {
+            InputState::JustPressed
+        } else if self.just_released(input) {
+            InputState::JustReleased
+        } else if self.pressed(input) {
+            InputState::Pressed
+        } else {
+            InputState::Released
+        }
+    }
 }
 
 impl KeyIdentifier for KeyCode {
@@ -52,28 +64,20 @@ impl KeyIdentifier for Key {
 
 impl KeyboardInput {
     /// Returns the state of a key.
-    pub fn get(&self, key: KeyCode) -> InputState {
-        if self.just_pressed_codes.contains(&key) {
-            InputState::JustPressed
-        } else if self.just_released_codes.contains(&key) {
-            InputState::JustReleased
-        } else if self.pressed_codes.contains(&key) {
-            InputState::Pressed
-        } else {
-            InputState::Released
-        }
+    pub fn get<T: KeyIdentifier>(&self, key: T) -> InputState {
+        key.state(self)
     }
     /// Returns whether a key is currently pressed.
     pub fn pressed<T: KeyIdentifier>(&self, key: T) -> bool {
-        key.pressed(&self)
+        key.pressed(self)
     }
     /// Returns whether a key was pressed during this frame.
     pub fn just_pressed<T: KeyIdentifier>(&self, key: T) -> bool {
-        key.just_pressed(&self)
+        key.just_pressed(self)
     }
     /// Returns whether a key was released during this frame.
     pub fn just_released<T: KeyIdentifier>(&self, key: T) -> bool {
-        key.just_released(&self)
+        key.just_released(self)
     }
     pub(crate) fn press_code(&mut self, key: Option<KeyCode>) {
         let Some(key) = key else {
